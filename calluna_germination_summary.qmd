@@ -1,0 +1,107 @@
+---
+title: "calluna_germination_summary"
+format: html
+editor: visual
+---
+
+## Calluna germination summary
+
+Libraries and setup
+
+```{r}
+#| label: setup
+
+#loading the libraries that will be used
+library(readxl)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(lubridate)
+
+
+
+```
+
+This is for loading the Google Sheets directly from the browser
+
+```{r}
+#| label: import_gs4
+#| echo: false
+
+library(googlesheets4)
+# This is for authentication.
+# In the console, options will appear saying to go to the browser for a new authentication process etc. You need to go through and use your gmail for this.
+#gs4_auth()# Read in the relevant google sheet
+Calluna_Monitoring <- read_sheet("https://docs.google.com/spreadsheets/d/17JHkXi-tBAvqOJ_z8DEKTH8CUyWGTFP-uc6fktVktNE/edit?gid=0#gid=0",
+                                 col_names = TRUE)# if required, use 'install.packages()'
+# Check the data read in is correct regarding column types
+# Some columns should be character but are numbers (i.e. plot, mother ID). These we will not treat as consecutive numbers.
+# Start date is correctly imported as a date, but in year, month, day format. Have left for now.
+# Other date columns are logical for now, as there's no data entered (germination, cotyledon etc), similarly many of the monitoring columns as well# Correct the numeric > character issues
+Calluna_Monitoring <- Calluna_Monitoring %>%
+  mutate(plot = as.character(as.numeric(plot)),
+         mother_id = as.character(as.numeric(mother_id)))
+
+```
+
+Old school way of reading the sheet
+
+```{r}
+#| label: import
+#| echo: false
+
+#read the excel containing the data on germinations, reads from relative path
+data_germ <- read_excel("calluna_monitoring.xlsx") |>
+  mutate(germ_date = as.Date(as.numeric(germ_date)))
+
+#remove first 50 rows, as those seeds were not found.
+data_germ <- data_germ[-c(1:50), ]
+
+
+#data_germ_filter <- subset(data_germ, select = -c(13:53))
+
+
+
+```
+
+Tidying
+
+```{r}
+#| label: tidying
+#| echo: false
+
+#subseting the dataset for use in plots
+Calluna_Monitoring_Clean <- subset(Calluna_Monitoring, select = c(petri_id, start_date, germ_date)) |>
+  drop_na()
+
+
+#pivot from wide to long
+#not yes used
+Calluna_long <- pivot_longer(Calluna_Monitoring_Clean, cols = c(start_date, germ_date))
+
+
+#converting each date into a POSIXct value for use with the inteval() function
+#necessary for the interval function, it seems to require a certain type of values
+Calluna_Germ_Time <- Calluna_Monitoring_Clean
+for (petri_id in Calluna_Germ_Time) {
+  as.POSIXct(Calluna_Germ_Time$start_date)
+  as.POSIXct(Calluna_Germ_Time$germ_date)
+}
+
+#adding a column for time to germination
+#the interval function gets the difference between two dates, dividing by days(1) yields the difference in amount of days
+Calluna_Germ_Time <- Calluna_Germ_Time |>
+  mutate(time_to_germination = interval(ymd(Calluna_Monitoring_Clean$start_date), ymd(Calluna_Monitoring_Clean$germ_date)) %/% days(1))
+
+```
+
+Plots
+
+```{r}
+#| label: plot
+
+#start of a plot for time to germination
+plot <- ggplot(data = Calluna_Germ_Time, aes(x = petri_id, y = time_to_germination)) + geom_point()
+plot
+
+```
