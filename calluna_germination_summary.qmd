@@ -44,26 +44,6 @@ Calluna_Monitoring <- Calluna_Monitoring %>%
 
 ```
 
-Old school way of reading the sheet
-
-```{r}
-#| label: import
-#| echo: false
-
-#read the excel containing the data on germinations, reads from relative path
-data_germ <- read_excel("calluna_monitoring.xlsx") |>
-  mutate(germ_date = as.Date(as.numeric(germ_date)))
-
-#remove first 50 rows, as those seeds were not found.
-data_germ <- data_germ[-c(1:50), ]
-
-
-#data_germ_filter <- subset(data_germ, select = -c(13:53))
-
-
-
-```
-
 Tidying
 
 ```{r}
@@ -72,7 +52,7 @@ Tidying
 
 #subseting the dataset for use in plots
 Calluna_Monitoring_Clean <- subset(Calluna_Monitoring, select = c(petri_id, start_date, germ_date)) |>
-  drop_na()
+  drop_na() 
 
 
 #pivot from wide to long
@@ -91,17 +71,30 @@ for (petri_id in Calluna_Germ_Time) {
 #adding a column for time to germination
 #the interval function gets the difference between two dates, dividing by days(1) yields the difference in amount of days
 Calluna_Germ_Time <- Calluna_Germ_Time |>
-  mutate(time_to_germination = interval(ymd(Calluna_Monitoring_Clean$start_date), ymd(Calluna_Monitoring_Clean$germ_date)) %/% days(1))
+  mutate(time_to_germination = interval(ymd(Calluna_Monitoring_Clean$start_date), ymd(Calluna_Monitoring_Clean$germ_date)) %/% days(1)) |>
+  add_count(germ_date)
 
 ```
 
 Plots
 
 ```{r}
-#| label: plot
+#| label: plot_germination
 
 #start of a plot for time to germination
+#once more seeds germinate, the plots should be grouped by mothers or something like that to avoid having a lot of points. could make it into a box plot to get variance in germination
 plot <- ggplot(data = Calluna_Germ_Time, aes(x = petri_id, y = time_to_germination)) + geom_point()
 plot
+
+```
+
+Plots 2
+
+```{r}
+#| label: plot2
+
+germ_per_day <- unique(Calluna_Germ_Time[, c("germ_date", "n")])
+
+ggplot(data = germ_per_day, aes(x = germ_date, y = n) ) + geom_col()
 
 ```
