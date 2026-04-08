@@ -1,0 +1,155 @@
+---
+title: "calluna-xylem"
+format: html
+editor: visual
+---
+
+# Calluna xylem exploration
+
+### Loading libraries
+
+```{r}
+#| label: libraries
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(readr)
+library(readxl)
+library(ggplot2)
+library(janitor)
+library(plotrix)
+```
+
+### Import
+
+```{r}
+#| label: import
+#| message: false
+#| warning: false
+#| echo: false
+
+#the main dataset is imported in this chunk. many csv files from one directory are imported and combined into one large dataset. the dataset consists of imagej outputs of particle analyses, set with certain parameters.
+
+#set directory. change if you use another path
+xylem_area_dir <- "/home/eirik/Documents/skole/r/calluna-hydraulics/data/"
+
+#list each file in the xylem area directory and prepare it for import
+xylem_area_files <- list.files(xylem_area_dir, pattern = "\\.csv$", full.names = TRUE)
+
+#create a raw dataset by reading the csv files in the directory and identify them by the filename
+xylem_area_raw <- xylem_area_files |>
+  setNames(basename(xylem_area_files)) |>
+  purrr::map_df(~ readr::read_csv(.x, show_col_types = FALSE), .id = "source_file") |>
+  rename_at("...1", ~"xylem_id")
+```
+
+```{r}
+#| label: damage_import
+#| message: false
+
+#this imports the dataset that contains information about the extent of damage from microtome sectioning and growth abnormalities in the calluna that has been sampled for hydraulic analysis. damage for the whole stem, as well as damage in the "cardinal directions" and subsets.
+
+#import damage data
+xylem_damage <- read_csv("Xylem_damage_report.csv") |>
+  mutate(plant = substr(image_id,1,7))
+```
+
+### Combining datasets and export of raw data
+
+```{r}
+#| label: combination_prep
+#creating some new column in the xylem area dataset to allow the use of match arguments so that each dataset can be combined
+
+xylem_area_combined <- xylem_area_raw |>
+  #create plant name
+  mutate(plant = substr(source_file,1,7)) |>
+  #create age class
+  mutate(age_class = substr(source_file,1,3)) |>
+  #create nin type
+  mutate(nin_type = substr(source_file,5,6)) |>
+  #create plant cardinal direction
+  mutate(plant_direction = substr(source_file,1,9)) |>
+  #create own column with the subset number (to match with the damage dataset)
+  mutate(subset = substr(source_file,18,18)) |>
+  mutate(subset_damage = 1) #1 is just a placeholder, will get replaced in the next chunk
+
+```
+
+```{r}
+#| label: combine_damage_dataset
+
+#adding xylem damage to the combined dataset
+
+#add in whole plant damage
+xylem_area_combined$whole_plant_damage <- xylem_damage$damage_whole[match(xylem_area_combined$plant, xylem_damage$plant)]
+
+#add in cardinal direction damage
+xylem_area_combined$cardinal_direction_damage <- xylem_damage$damage_pic[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+#add in subset damage
+xylem_area_combined$subset1 <- xylem_damage$damage_sub1[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+xylem_area_combined$subset2 <- xylem_damage$damage_sub2[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+xylem_area_combined$subset3 <- xylem_damage$damage_sub3[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+#usig the 3 new columns from above, add the respective damage from the correct subset into this column. 
+xylem_area_combined <- xylem_area_combined |>
+  mutate(subset_damage = case_when(
+    subset == 1 ~ subset1,
+    subset == 2 ~ subset2,
+    subset == 3 ~ subset3
+  ))
+
+
+#add in warps (mostly growth abnormalities or possibly stretching from sectioning)
+xylem_area_combined$warped <- xylem_damage$warped[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+#add in folds (when the section has folded over it self somewhat)
+xylem_area_combined$folds <- xylem_damage$folds[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+#add in late season missing (where the outermost part of the ring has been teared off)
+xylem_area_combined$late_season_missing <- xylem_damage$late_season_missing[match(xylem_area_combined$plant_direction, xylem_damage$image_id)]
+
+#remove the 3 columns with subset damage as they are now redundant
+xylem_area_combined <- xylem_area_combined |>
+  select(-c(18,19,20))
+```
+
+```{r}
+#| label: raw_data_export
+
+#in this chunk a csv file containing the raw data will be generated, and uploaded for others to see and use. No filtering or cleaning has taken place so far, only joing the different datasets together to create the calluna hydraulics dataset.
+
+write.csv(xylem_area_combined, "DURIN_raw_LygraFire_field_trait_2025.csv")
+```
+
+### Plotting
+
+```{r}
+#| label: xylem_size
+#| message: false
+#| warning: false
+
+#simple visiualisation of each plant that is in the dataset as how large the xylems are.
+
+ggplot(data = xylem_area_combined, mapping = aes(x = plant, y = Area, colour = age_class))  + geom_violin() + geom_jitter()  + geom_errorbar(aes(ymin = means-stde, ymax = means+stde, color = "black"))
+```
+
+```{r}
+#| label: xylem_size_treatment
+
+#simple plot with the xylem vessel areas for each nin x age class combinations and their average in red bars.
+
+#plot with every observation, means and error bars for each treatment
+ggplot(data = xylem_area_cleaned, mapping = aes(x = treatment, y = Area, colour = age_class))  + geom_violin() + geom_jitter()  + geom_errorbar(aes(ymin = treatment_mean-treatment_stde, ymax = treatment_mean+treatment_stde, color = "black"))
+```
+
+```{r}
+#| label: height_to_xylem_ratio
+
+#simple plot to visualize if there is a trend in larger xylems with increased height (studies on interspecific variation in xylem cross sectional area have found a strong positive relationship)
+
+ggplot(data = xylem_area_cleaned, mapping = aes(x = as.numeric(as.character(height_cm)), y = means, color = NiN)) + geom_point(aes(color = NiN)) + geom_smooth() + facet_wrap(vars(age_class)) 
+```
