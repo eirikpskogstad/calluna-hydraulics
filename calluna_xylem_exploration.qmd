@@ -154,7 +154,9 @@ xylem_area_combined <- xylem_area_combined |>
 xylem_area_combined$age_class <- factor(xylem_area_combined$age_class, levels = c("PIO", "BUI", "MAT"))
 
 xylem_area_combined_circ <- xylem_area_combined |>
-  filter(circ >= 0.7)
+  filter(circ >= 0.7) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area))
 
 ```
 
@@ -219,10 +221,10 @@ palette_damage <- c("orange", "red")
 
 
 plot_damage_5 <- ggplot() + 
-  geom_jitter(data = xylem_area_combined,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Unfiltered") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + theme(legend.position = "none") + scale_color_manual(values = palette_damage)
+  geom_jitter(data = xylem_area_combined,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Unfiltered") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + theme(legend.position = "none") + scale_color_manual(values = palette_damage) + scale_y_continuous(breaks = seq(100,2000, by = 100))
 
 plot_damage_5_filtered <- ggplot() + 
-  geom_jitter(data = xylem_area_combined_circ,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined_circ, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Circularity > 0.7") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + scale_color_manual(values = palette_damage) + guides(color = guide_legend(title = "Subset damage index"))
+  geom_jitter(data = xylem_area_combined_circ,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined_circ, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Circularity > 0.7") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + scale_color_manual(values = palette_damage) + guides(color = guide_legend(title = "Subset damage index")) + scale_y_continuous(breaks = seq(100,2000, by = 100))
 
 plot_damage_5 + plot_damage_5_filtered
 ```
