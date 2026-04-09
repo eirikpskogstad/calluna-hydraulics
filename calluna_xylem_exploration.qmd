@@ -19,6 +19,9 @@ library(readxl)
 library(ggplot2)
 library(janitor)
 library(plotrix)
+library(patchwork)
+library(ggdist)
+library(lme4)
 ```
 
 ### Import
@@ -68,8 +71,12 @@ xylem_area_combined <- xylem_area_raw |>
   mutate(age_class = substr(source_file,1,3)) |>
   #create nin type
   mutate(nin_type = substr(source_file,5,6)) |>
+  #create treatment combo
+  mutate(treatment = substr(source_file, 1, 6)) |>
   #create plant cardinal direction
   mutate(plant_direction = substr(source_file,1,9)) |>
+  #create plant subset
+  mutate(plant_subset = substr(source_file,1,11)) |>
   #create own column with the subset number (to match with the damage dataset)
   mutate(subset = substr(source_file,18,18)) |>
   mutate(subset_damage = 1) #1 is just a placeholder, will get replaced in the next chunk
@@ -114,7 +121,7 @@ xylem_area_combined$late_season_missing <- xylem_damage$late_season_missing[matc
 
 #remove the 3 columns with subset damage as they are now redundant
 xylem_area_combined <- xylem_area_combined |>
-  select(-c(18,19,20))
+  select(-c(20,21,22))
 ```
 
 ```{r}
@@ -125,31 +132,124 @@ xylem_area_combined <- xylem_area_combined |>
 write.csv(xylem_area_combined, "raw_data/DURIN_raw_LygraFire_field_trait_2025.csv")
 ```
 
-### Plotting
+# Plotting
 
 ```{r}
-#| label: xylem_size
+#| label: means and plot prepping
+
+#adding means on different levels and adding statistics to visualize the data better
+
+xylem_area_combined <- xylem_area_combined |>
+  #creating means at the plant level
+  group_by(plant) |>
+  mutate(means_plant = mean(Area)) |>
+  #creating means at the subset level
+  group_by(source_file) |>
+  mutate(means_subset = mean(Area)) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area)) |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  ungroup()
+
+xylem_area_combined$age_class <- factor(xylem_area_combined$age_class, levels = c("PIO", "BUI", "MAT"))
+
+xylem_area_combined_circ <- xylem_area_combined |>
+  filter(circ >= 0.7)
+
+```
+
+### Plant level xylem size vs subset damage
+
+```{r}
+#| label: xylem_size_damage_subset
 #| message: false
 #| warning: false
 
-#simple visiualisation of each plant that is in the dataset as how large the xylems are.
+#simple visiualisation of plant level mean xylem size colored by extent of damage
 
-ggplot(data = xylem_area_combined, mapping = aes(x = plant, y = Area, colour = age_class))  + geom_violin() + geom_jitter()  + geom_errorbar(aes(ymin = means-stde, ymax = means+stde, color = "black"))
+ggplot(data = xylem_area_combined, mapping = aes(x = plant, y = Area, colour = as.character(as.numeric(subset_damage)))) + geom_point() + facet_wrap(vars(age_class), scales = "free_x") + scale_color_viridis_d()
+```
+
+### Plant level xylem mean size vs NiN
+
+```{r}
+#| label: xylem_mean_size_nin
+#| message: false
+#| warning: false
+
+#simple visiualisation of plant level mean xylem size colored by nin type
+
+ggplot(data = xylem_area_combined, mapping = aes(x = plant, y = means_plant, colour = nin_type)) + geom_jitter() + facet_wrap(vars(age_class), scales = "free") + scale_color_viridis_d()
+```
+
+### Xylem distribution changes unfiltered vs circularity \> 0.7
+
+```{r}
+#| label: xylem_mean_size_nin_subset
+#| message: false
+#| warning: false
+
+#simple visiualisation of subset level mean xylem size colored by nin type
+
+subset_nin_plot <- ggplot(data = xylem_area_combined, mapping = aes(x = treatment, y = Area, colour = nin_type)) + geom_jitter() + geom_violin() + facet_wrap(vars(age_class), scales = "free") + scale_color_viridis_d() + labs(title = "Unfiltered") + xlab(label = "NiN x Age class") + ylab("Xylem area in µm") + theme(legend.position = "none")
+
+subset_nin_plot_filtered <- ggplot(data = xylem_area_combined_circ, mapping = aes(x = treatment, y = Area, colour = nin_type)) + geom_jitter() + geom_violin() + facet_wrap(vars(age_class), scales = "free") + scale_color_viridis_d() + labs(title = "Circularity > 0.7") + xlab(label = "NiN x Age class") + ylab("Xylem area in µm")
+
+subset_nin_plot + subset_nin_plot_filtered
+```
+
+### Distribution of damage index 4 and 5, and the effect of circularity \> 0.7
+
+```{r}
+#creating new filtered datasets
+xylem_area_damage_5 <- xylem_area_combined |>
+  filter(subset_damage == 5)
+
+xylem_area_damage_4 <- xylem_area_combined |>
+  filter(subset_damage == 4)
+
+xylem_area_damage_5_filtered <- xylem_area_combined_circ |>
+  filter(subset_damage == 5)
+
+xylem_area_damage_4_filtered <- xylem_area_combined_circ |>
+  filter(subset_damage == 4)
+
+#create a custom palette to use
+palette_damage <- c("orange", "red")
+
+
+plot_damage_5 <- ggplot() + 
+  geom_jitter(data = xylem_area_combined,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Unfiltered") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + theme(legend.position = "none") + scale_color_manual(values = palette_damage)
+
+plot_damage_5_filtered <- ggplot() + 
+  geom_jitter(data = xylem_area_combined_circ,aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_area_damage_4_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_area_damage_5_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = xylem_area_combined_circ, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Circularity > 0.7") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + scale_color_manual(values = palette_damage) + guides(color = guide_legend(title = "Subset damage index"))
+
+plot_damage_5 + plot_damage_5_filtered
+```
+
+## Residual plots
+
+```{r}
+X <- xylem_area_combined$plant_subset
+Y <- xylem_area_combined$means_subset
+
+model <- lm(Y~X)
+
+res <- resid(model)
+res
+plot(fitted(model), res)
+abline(0,0)
 ```
 
 ```{r}
-#| label: xylem_size_treatment
-
-#simple plot with the xylem vessel areas for each nin x age class combinations and their average in red bars.
-
-#plot with every observation, means and error bars for each treatment
-ggplot(data = xylem_area_cleaned, mapping = aes(x = treatment, y = Area, colour = age_class))  + geom_violin() + geom_jitter()  + geom_errorbar(aes(ymin = treatment_mean-treatment_stde, ymax = treatment_mean+treatment_stde, color = "black"))
+qqnorm(res)
 ```
 
 ```{r}
-#| label: height_to_xylem_ratio
+X1 <- xylem_area_combined$nin_type
+X2 <- xylem_area_combined$age_class
 
-#simple plot to visualize if there is a trend in larger xylems with increased height (studies on interspecific variation in xylem cross sectional area have found a strong positive relationship)
+model_3x3 <- lm(log(Area) ~ nin_type * age_class, data = xylem_area_combined)
 
-ggplot(data = xylem_area_cleaned, mapping = aes(x = as.numeric(as.character(height_cm)), y = means, color = NiN)) + geom_point(aes(color = NiN)) + geom_smooth() + facet_wrap(vars(age_class)) 
+plot(model_3x3)
 ```

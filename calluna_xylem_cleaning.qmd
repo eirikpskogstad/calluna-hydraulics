@@ -1,0 +1,53 @@
+---
+title: "calluna_xylem_cleaning"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: libraries
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(readr)
+library(readxl)
+library(ggplot2)
+library(janitor)
+library(plotrix)
+library(patchwork)
+library(ggdist)
+library(lme4)
+```
+
+```{r}
+#| label: import
+
+raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv") 
+
+```
+
+```{r}
+#| label: check evenness
+#| message: false
+#| warning: false
+
+#this chunk creates a dataframe that count the amount of xylem per treatment before and after filtering by circularity
+
+xylem_count_evenness <- raw_data |>
+  count(treatment)
+
+xylem_count_evenness_filtered <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  filter(circ >= 0.70) |>
+  count(treatment)
+
+xylem_count_combined <- xylem_count_evenness |>
+  mutate(count_filter = xylem_count_evenness_filtered$n) |>
+  mutate(percentage_remaining = count_filter/n)
+
+names(xylem_count_combined) <- c("Treatment", "Number of xylems", "Number of xylems after filtering", "Percentage xylem remaining")
+  
+
+xylem_count_combined
+```
