@@ -23,7 +23,8 @@ library(lme4)
 ```{r}
 #| label: import
 
-raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv") 
+raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv")
+raw_data$age_class <-factor(raw_data$age_class, levels = c("PIO", "BUI", "MAT"))
 
 ```
 
@@ -50,4 +51,21 @@ names(xylem_count_combined) <- c("Treatment", "Number of xylems", "Number of xyl
   
 
 xylem_count_combined
+```
+
+```{r}
+#| label: filtering by circularity
+
+filtered_data <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  filter(circ >= 0.70) #0.70 removes most deformations while still keeping a lot of data points
+
+```
+
+```{r}
+
+model_mixed <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = xylem_area_combined)
+
+plot(model_mixed)
+summary(model_mixed)
 ```

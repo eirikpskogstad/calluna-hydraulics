@@ -229,29 +229,137 @@ plot_damage_5_filtered <- ggplot() +
 plot_damage_5 + plot_damage_5_filtered
 ```
 
-## Residual plots
+### The effect of warped tissue
 
 ```{r}
-X <- xylem_area_combined$plant_subset
-Y <- xylem_area_combined$means_subset
+#| label: warped vs unwarped
 
-model <- lm(Y~X)
+xylem_unwarped <- xylem_area_combined |>
+  filter(warped == 0) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area))
 
-res <- resid(model)
-res
-plot(fitted(model), res)
-abline(0,0)
+xylem_warped <- xylem_area_combined |>
+  filter(warped == 1) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area))
+
+plot_unwarped <- ggplot(data = xylem_unwarped) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Unwarped")
+
+plot_warped <- ggplot(data = xylem_warped) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Warped")
+
+plot_unwarped + plot_warped
 ```
 
+Warps have a lower average xylem size by around a fixed value of 100 square µm. Note that the xylem vessels themselves are not necessarily warped, but the tissue they were found in is. Regardless, the absolute size of xylem vessels seem to decrease in warped tissue.
+
+### The effect of folds 
+
 ```{r}
-qqnorm(res)
+#| label: the effect of folds
+
+xylem_folds0 <- xylem_area_combined |>
+  filter(folds == 0) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+xylem_folds1 <- xylem_area_combined |>
+  filter(folds == 1) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+xylem_folds2 <- xylem_area_combined |>
+  filter(folds == 2) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+xylem_folds3 <- xylem_area_combined |>
+  filter(folds == 3) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+plot_folds_control <- ggplot(data = xylem_area_combined) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Control")+ scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds0 <- ggplot(data = xylem_folds0) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds = 0")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds1 <- ggplot(data = xylem_folds1) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds = 1")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds2 <- ggplot(data = xylem_folds2) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds = 2")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds3 <- ggplot(data = xylem_folds3) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds = 3")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+
+plot_folds_control + plot_folds0 + plot_folds1 + plot_folds2 + plot_folds3
 ```
 
+Folds \>= 2 seem to decrease the average size of xylem, while folds = 1 is similar to folds = 0, with the exception of MAT-BH, which is a bit higher.
+
 ```{r}
-X1 <- xylem_area_combined$nin_type
-X2 <- xylem_area_combined$age_class
+#| label: the effect of folds, but cumulative
 
-model_3x3 <- lm(log(Area) ~ nin_type * age_class, data = xylem_area_combined)
 
-plot(model_3x3)
+xylem_folds1_cumulative <- xylem_area_combined |>
+  filter(folds < 3) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+xylem_folds2_cumulative <- xylem_area_combined |>
+  filter(folds < 2) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+xylem_folds3_cumulative <- xylem_area_combined |>
+  filter(folds < 1) |>
+  group_by(treatment) |>
+  mutate(means_folds = mean(Area))
+
+plot_folds_control_cumulative <- ggplot(data = xylem_area_combined) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Control")+ scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds1_cumulative <- ggplot(data = xylem_folds1_cumulative) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds < 3")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds2_cumulative <- ggplot(data = xylem_folds2_cumulative) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds < 2")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_folds3_cumulative <- ggplot(data = xylem_folds3_cumulative) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_folds), color = "blue") + labs(title = "Folds < 1")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+
+plot_folds_control_cumulative + plot_folds1_cumulative + plot_folds2_cumulative + plot_folds3_cumulative
+```
+
+Removing folds does not seem to impact average xylem size visually. At "Folds \< 1", there is almost 3000 observations removed.
+
+### Combining circularity, warps, and folds
+
+```{r}
+#| label: circuarity, warps, and folds
+
+xylem_combined_factors <- xylem_area_combined |>
+  filter(circ >= 0.70) |>
+  filter(warped == 0) |>
+  filter(folds == 0) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area))
+
+
+plot_control <- ggplot(data = xylem_area_combined) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Control")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_combined_factors <- ggplot(data = xylem_combined_factors) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Combined factors")  + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_control + plot_combined_factors
+```
+
+BUI-FH, BUI-TH, PIO-BH, and PIO-TH all increased after filtering by circularity \> 0.70, warps = 0, and folds = 0. The rest of the averages stayed basically the same.
+
+## Mixed effect models
+
+```{r}
+
+model_mixed <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = xylem_area_combined)
+
+model_mixed_combined <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = xylem_combined_factors)
+
+plot(model_mixed)
+plot(model_mixed_combined)
+
+summary(model_mixed)
+summary(model_mixed_combined)
 ```
