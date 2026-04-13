@@ -253,7 +253,7 @@ plot_unwarped + plot_warped
 
 Warps have a lower average xylem size by around a fixed value of 100 square µm. Note that the xylem vessels themselves are not necessarily warped, but the tissue they were found in is. Regardless, the absolute size of xylem vessels seem to decrease in warped tissue.
 
-### The effect of folds 
+### The effect of folds
 
 ```{r}
 #| label: the effect of folds

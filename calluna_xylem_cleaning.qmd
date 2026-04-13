@@ -4,20 +4,20 @@ format: html
 editor: visual
 ---
 
+# Calluna xylem cleaning
+
+## Setup
+
 ```{r}
 #| label: libraries
 #| message: false
 #| warning: false
 
 library(tidyverse)
-library(readr)
-library(readxl)
 library(ggplot2)
-library(janitor)
-library(plotrix)
 library(patchwork)
-library(ggdist)
 library(lme4)
+library(plotrix)
 ```
 
 ```{r}
@@ -27,6 +27,10 @@ raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv")
 raw_data$age_class <-factor(raw_data$age_class, levels = c("PIO", "BUI", "MAT"))
 
 ```
+
+## Cleaning
+
+### Evenness
 
 ```{r}
 #| label: check evenness
@@ -54,6 +58,90 @@ xylem_count_combined
 ```
 
 ```{r}
+#| label: circularity in relation to damage
+
+#this chunk provides a comparison of datapoints before and after filtering by circularity >= 0.70.
+
+data_circ <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area))
+
+data_circ_filter <- data_circ |>
+  filter(circ >= 0.70)
+
+#creating new filtered datasets
+xylem_damage_5 <- data_circ |>
+  filter(subset_damage == 5)
+
+xylem_damage_4 <- data_circ |>
+  filter(subset_damage == 4)
+
+xylem_damage_5_filtered <- data_circ_filter |>
+  filter(subset_damage == 5)
+
+xylem_damage_4_filtered <- data_circ_filter |>
+  filter(subset_damage == 4)
+
+#create a custom palette to use
+palette_damage <- c("orange", "red")
+
+
+plot_damage <- ggplot() + 
+  geom_jitter(data = data_circ, aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_damage_4, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_damage_5, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = data_circ, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Unfiltered") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + theme(legend.position = "none") + scale_color_manual(values = palette_damage) + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_damage_filtered <- ggplot() + 
+  geom_jitter(data = data_circ, aes(x = treatment, y = Area), color = "grey") + geom_jitter(data = xylem_damage_4_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_jitter(data = xylem_damage_5_filtered, aes(x = treatment, y = Area, color = as.character(as.numeric(subset_damage)))) + geom_point(data = data_circ, aes(x = treatment, y = means_treatment), color = "blue") + labs(title = "Circularity >= 0.7") + ylab(label = "Xylem vessel area in µm") + xlab(label = "NiN x Age class") + scale_color_manual(values = palette_damage) + guides(color = guide_legend(title = "Subset damage index")) + scale_y_continuous(breaks = seq(100,2000, by = 100))
+
+plot_damage + plot_damage_filtered
+```
+
+NOTE: blue dots indicate treatment level averages (e.g. BUI-TH)
+
+The means for each treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.
+
+```{r}
+#| label: assessing skewness after filtering
+
+skew_raw <- raw_data |>
+  mutate(set = "raw")
+
+skew_filtered <- data_circ_filter |>
+  mutate(set = "filter") |>
+  select(-c(24,25))
+
+skew_both <- rbind(skew_raw, skew_filtered)
+
+skew_summary <- skew_both |>
+  group_by(set, age_class, nin_type) |>
+  summarise(
+    skew = moments::skewness(Area),
+    mean = mean(Area),
+    sd = std.error(Area),
+    n = n()
+  ) |> 
+  ungroup() |>
+  mutate(treatment = paste(age_class, nin_type))
+
+
+skew_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = skew, color = set))
+
+mean_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set))
+
+skew_plot + mean_plot
+```
+
+A reason for the increased size is the presence of double parenchyma cells, small tears, and stretched large parenchyma / small xylems, which is gets filtered out by the circularity filter. Many of these are below the average xylem size and thus seemingly increases the average xylem area. The filter also removes large xylem vessels, but they are not as common.\
+\
+MAT-TH actually decreases in average size after filtering, but other than that there is a shared tendency to increase average size after filtering.
+
+```{r}
+ggplot(data = raw_data) + geom_jitter(aes(x = subset_damage, y = Area)) + facet_wrap(vars(age_class), scales = "free")
+```
+
+As seen by the plot above, xylem vessels from subsets marked as highly damaged seem to have a lower average area than less damaged ones. The same trend is seen with xylem vessels from undamaged subsets.
+
+```{r}
 #| label: filtering by circularity
 
 filtered_data <- raw_data |>
@@ -63,9 +151,100 @@ filtered_data <- raw_data |>
 ```
 
 ```{r}
+ggplot(data = filtered_data) + geom_jitter(aes(x = subset_damage, y = Area)) + facet_wrap(vars(age_class), scales = "free")
+```
 
-model_mixed <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = xylem_area_combined)
+```{r}
+filtered_average_size <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  filter(circ <= 0.70) |>
+  group_by(treatment) |>
+  mutate(means = mean(Area)) 
 
-plot(model_mixed)
-summary(model_mixed)
+ggplot(data = filtered_average_size) + geom_point(aes(x = treatment, y= means))
+```
+
+```{r}
+model_mixed_raw <- lmer(Area ~ nin_type * age_class + (1 | plant), data = raw_data)
+model_mixed <- lmer(Area ~ nin_type * age_class + (1 | plant), data = filtered_data)
+
+res_raw <- residuals(model_mixed_raw)
+res <- residuals(model_mixed)
+
+qqnorm(res_raw)
+qqline(res_raw)
+qqnorm(res)
+qqline(res)
+```
+
+The plot above shows the difference between the residuals of the unfiltered
+
+```{r}
+
+model_mixed_raw_log <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = raw_data)
+model_mixed_log <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = filtered_data)
+
+res_raw_log <- residuals(model_mixed_raw_log)
+res_log <- residuals(model_mixed_log)
+
+
+qqnorm(res_raw_log)
+qqline(res_raw_log)
+qqnorm(res_log)
+qqline(res_log)
+```
+
+```{r}
+plot(res_raw)
+plot(res_raw_log)
+```
+
+Due to the data being skewed, transforming the data logarithmycally improves the skewness.
+
+```{r}
+#| label: chi square test
+
+data_chi <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  mutate(kept = case_when(
+    circ <= 0.70 ~ 0,
+    circ >= 0.70 ~ 1
+  )) |> 
+  group_by(treatment) |>
+  count(kept)
+
+data_chi <- xtabs(n ~ treatment + kept, data = data_chi)
+
+chisq.test(data_chi)
+
+```
+
+```{r}
+
+problem_treatment <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  mutate(kept = case_when(
+    circ <= 0.70 ~ 0,
+    circ >= 0.70 ~ 1
+  )) |> 
+  subset( kept == 0 & treatment == "BUI-BH")
+
+
+```
+
+```{r}
+circ_test <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.)))
+
+model_mixed_treatment <- lmer(Area ~ treatment * circ + (1 | plant), data = circ_test)
+summary(model_mixed_treatment)
+
+res_treatment <- residuals(model_mixed_treatment)
+
+qqnorm(res_treatment)
+qqline(res_treatment)
+```
+
+```{r}
+write.csv(filtered_data, "clean_data/DURIN_clean_LygraFire_field_trait_2025.xlsx")
 ```
