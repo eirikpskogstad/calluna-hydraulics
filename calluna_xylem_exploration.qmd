@@ -75,8 +75,6 @@ xylem_area_combined <- xylem_area_raw |>
   mutate(treatment = substr(source_file, 1, 6)) |>
   #create plant cardinal direction
   mutate(plant_direction = substr(source_file,1,9)) |>
-  #create plant subset
-  mutate(plant_subset = substr(source_file,1,11)) |>
   #create own column with the subset number (to match with the damage dataset)
   mutate(subset = substr(source_file,18,18)) |>
   mutate(subset_damage = 1) #1 is just a placeholder, will get replaced in the next chunk
@@ -121,7 +119,7 @@ xylem_area_combined$late_season_missing <- xylem_damage$late_season_missing[matc
 
 #remove the 3 columns with subset damage as they are now redundant
 xylem_area_combined <- xylem_area_combined |>
-  select(-c(20,21,22))
+  select(-c(19,20,21))
 ```
 
 ```{r}
@@ -347,7 +345,23 @@ plot_combined_factors <- ggplot(data = xylem_combined_factors) + geom_jitter(aes
 plot_control + plot_combined_factors
 ```
 
-BUI-FH, BUI-TH, PIO-BH, and PIO-TH all increased after filtering by circularity \> 0.70, warps = 0, and folds = 0. The rest of the averages stayed basically the same.
+BUI-FH, BUI-TH, PIO-BH, and PIO-TH all increased after filtering by circularity \> 0.70, warps = 0, and folds = 0. The rest of the averages stayed basically the same.\
+\
+
+```{r}
+#| label: subset average damage
+
+#this chunk showcases the average xylem size for different subset damages
+
+avg_damage <- xylem_area_combined |>
+  group_by(subset_damage, treatment) |>
+  mutate(mean_damage = mean(Area))
+
+
+ggplot(data = avg_damage) + geom_jitter(aes(x = treatment, y = Area), color = "grey") + geom_point(aes(x = treatment, y = mean_damage, color = subset_damage))
+```
+
+Higher damage seem to decrease the average xylem size, so by filtering away damaged subsets it is likely that the average xylem size would increase
 
 ## Mixed effect models
 

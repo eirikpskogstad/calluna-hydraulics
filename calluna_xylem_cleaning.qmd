@@ -98,7 +98,7 @@ plot_damage + plot_damage_filtered
 
 NOTE: blue dots indicate treatment level averages (e.g. BUI-TH)
 
-The means for each treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.
+The patterns of means for every treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.
 
 ```{r}
 #| label: assessing skewness after filtering
@@ -136,45 +136,51 @@ A reason for the increased size is the presence of double parenchyma cells, smal
 MAT-TH actually decreases in average size after filtering, but other than that there is a shared tendency to increase average size after filtering.
 
 ```{r}
-ggplot(data = raw_data) + geom_jitter(aes(x = subset_damage, y = Area)) + facet_wrap(vars(age_class), scales = "free")
-```
+#| label: chi square test
 
-As seen by the plot above, xylem vessels from subsets marked as highly damaged seem to have a lower average area than less damaged ones. The same trend is seen with xylem vessels from undamaged subsets.
-
-```{r}
-#| label: filtering by circularity
-
-filtered_data <- raw_data |>
+data_chi <- raw_data |>
   mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  filter(circ >= 0.70) #0.70 removes most deformations while still keeping a lot of data points
-
-```
-
-```{r}
-ggplot(data = filtered_data) + geom_jitter(aes(x = subset_damage, y = Area)) + facet_wrap(vars(age_class), scales = "free")
-```
-
-```{r}
-filtered_average_size <- raw_data |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  filter(circ <= 0.70) |>
+  mutate(kept = case_when(
+    circ <= 0.70 ~ 0,
+    circ >= 0.70 ~ 1
+  )) |> 
   group_by(treatment) |>
-  mutate(means = mean(Area)) 
+  count(kept)
 
-ggplot(data = filtered_average_size) + geom_point(aes(x = treatment, y= means))
+data_chi <- xtabs(n ~ treatment + kept, data = data_chi)
+
+chisq.test(data_chi)
+
+```
+
+The chi squared test shows that the filtering rule affects each treatment differently, so it is important to quantify if this bias is acceptable or favors a particular treatment. BUI-BH had the highest reduction of data points and was one of the treatments with largest change in mean area.
+
+```{r}
+problem_treatment <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  mutate(kept = case_when(
+    circ <= 0.70 ~ 0,
+    circ >= 0.70 ~ 1
+  )) |> 
+  subset( kept == 0 & treatment == "BUI-BH") |>
+  select(c(2,3,4,24))
+
+
 ```
 
 ```{r}
 model_mixed_raw <- lmer(Area ~ nin_type * age_class + (1 | plant), data = raw_data)
-model_mixed <- lmer(Area ~ nin_type * age_class + (1 | plant), data = filtered_data)
+#model_mixed <- lmer(Area ~ nin_type * age_class + (1 | plant), data = filtered_data)
 
 res_raw <- residuals(model_mixed_raw)
-res <- residuals(model_mixed)
+#res <- residuals(model_mixed)
 
 qqnorm(res_raw)
 qqline(res_raw)
-qqnorm(res)
-qqline(res)
+#qqnorm(res)
+#qqline(res)
+
+plot(model_mixed_raw)
 ```
 
 The plot above shows the difference between the residuals of the unfiltered
@@ -199,52 +205,54 @@ plot(res_raw)
 plot(res_raw_log)
 ```
 
-Due to the data being skewed, transforming the data logarithmycally improves the skewness.
+Due to the data being skewed, transforming the data logarithmically improves the skewness and allows the residuals to spread more evenly along the fitted line.
 
-```{r}
-#| label: chi square test
-
-data_chi <- raw_data |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  mutate(kept = case_when(
-    circ <= 0.70 ~ 0,
-    circ >= 0.70 ~ 1
-  )) |> 
-  group_by(treatment) |>
-  count(kept)
-
-data_chi <- xtabs(n ~ treatment + kept, data = data_chi)
-
-chisq.test(data_chi)
-
+```         
 ```
 
 ```{r}
+#| label: weighted circularity model
 
-problem_treatment <- raw_data |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  mutate(kept = case_when(
-    circ <= 0.70 ~ 0,
-    circ >= 0.70 ~ 1
-  )) |> 
-  subset( kept == 0 & treatment == "BUI-BH")
+a <- 2 #this the amplitude of the weights
+b <- 0.70 #this is the threshold for circularity in which it is more likely to be a xylem. everything below can easily be a tear. 
+
+weighted_circ_data <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |> #calculate circularity using imageJ's formula
+  mutate(weighted_circ = circ * (a * max(0, circ - b)) * (1/(1 + subset_damage)))  |> #circularity is multiplied so that higher values of circularity has higher influence on the model versus lower values. the last part is the subset_damage index, basically higher numbers mean higher chance that the xylem are damaged or just tears
+  group_by(plant) |>
+  mutate(plant_mean = mean(Area)) 
 
 
+mod <- lmer(Area ~ age_class * nin_type + (1 | source_file), data = weighted_circ_data, weights = weighted_circ)
+mod2 <- lmer(Area ~ age_class * nin_type + (1 | plant), data = weighted_circ_data, weights = weighted_circ)
+mod3 <- lmer(Area ~ age_class * nin_type + (1 | plant/source_file), data = weighted_circ_data, weights = weighted_circ)
+
+plot(mod)
+plot(mod2)
+plot(mod3)
+summary(mod)
+summary(mod2)
+summary(mod3)
+
+
+res_mod <- residuals(mod)
+plot(res_mod)
+qqnorm(res_mod)
+qqline(res_mod)
+
+res_mod2 <- residuals(mod2)
+plot(res_mod2)
+qqnorm(res_mod2)
+qqline(res_mod2)
+
+res_mod3 <- residuals(mod3)
+plot(res_mod3)
+qqnorm(res_mod3)
+qqline(res_mod3)
 ```
 
-```{r}
-circ_test <- raw_data |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.)))
-
-model_mixed_treatment <- lmer(Area ~ treatment * circ + (1 | plant), data = circ_test)
-summary(model_mixed_treatment)
-
-res_treatment <- residuals(model_mixed_treatment)
-
-qqnorm(res_treatment)
-qqline(res_treatment)
-```
+### Export
 
 ```{r}
-write.csv(filtered_data, "clean_data/DURIN_clean_LygraFire_field_trait_2025.xlsx")
+write.csv(weighted_circ_data, "clean_data/DURIN_clean_LygraFire_field_trait_2025.csv")
 ```
