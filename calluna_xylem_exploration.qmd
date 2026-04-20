@@ -48,6 +48,27 @@ xylem_area_raw <- xylem_area_files |>
 ```
 
 ```{r}
+#| label: subset import
+#| message: false
+#| warning: false
+#| echo: false
+
+#the main dataset is imported in this chunk. many csv files from one directory are imported and combined into one large dataset. the dataset consists of imagej outputs of particle analyses, set with certain parameters.
+
+#set directory. change if you use another path
+subset_area_dir <- "/home/eirik/Documents/skole/r/calluna-hydraulics/raw_data/subset_area/"
+
+#list each file in the xylem area directory and prepare it for import
+subset_area_files <- list.files(subset_area_dir, pattern = "\\.csv$", full.names = TRUE)
+
+#create a raw dataset by reading the csv files in the directory and identify them by the filename
+subset_area_raw <- subset_area_files |>
+  setNames(basename(subset_area_files)) |>
+  purrr::map_df(~ readr::read_csv(.x, show_col_types = FALSE), .id = "source_file") |>
+  rename_at("...1", ~"subset_id")
+```
+
+```{r}
 #| label: damage_import
 #| message: false
 
@@ -57,6 +78,8 @@ xylem_area_raw <- xylem_area_files |>
 xylem_damage <- read_csv("raw_data/Xylem_damage_report.csv") |>
   mutate(plant = substr(image_id,1,7))
 ```
+
+\
 
 ### Combining datasets and export of raw data
 
@@ -77,7 +100,18 @@ xylem_area_combined <- xylem_area_raw |>
   mutate(plant_direction = substr(source_file,1,9)) |>
   #create own column with the subset number (to match with the damage dataset)
   mutate(subset = substr(source_file,18,18)) |>
-  mutate(subset_damage = 1) #1 is just a placeholder, will get replaced in the next chunk
+  mutate(subset_id = paste(plant_direction,"-",subset,sep = ""))
+
+```
+
+```{r}
+#| label: subset area combination
+
+subset_combined <- subset_area_raw |>
+  mutate(identifier = substr(source_file, 1, 9)) |>
+  mutate(match_id = paste(identifier,"-",subset_id, sep = ""))
+
+xylem_area_combined$subset_area <- subset_combined$Area[match(xylem_area_combined$subset_id, subset_combined$match_id)]
 
 ```
 
@@ -85,6 +119,9 @@ xylem_area_combined <- xylem_area_raw |>
 #| label: combine_damage_dataset
 
 #adding xylem damage to the combined dataset
+
+xylem_area_combined <- xylem_area_combined |>
+  mutate(subset_damage = 1) #1 is just a placeholder, will get replaced in the next chunk
 
 #add in whole plant damage
 xylem_area_combined$whole_plant_damage <- xylem_damage$damage_whole[match(xylem_area_combined$plant, xylem_damage$plant)]
@@ -119,7 +156,7 @@ xylem_area_combined$late_season_missing <- xylem_damage$late_season_missing[matc
 
 #remove the 3 columns with subset damage as they are now redundant
 xylem_area_combined <- xylem_area_combined |>
-  select(-c(19,20,21))
+  select(-c(21,22,23))
 ```
 
 ```{r}
@@ -196,6 +233,29 @@ subset_nin_plot <- ggplot(data = xylem_area_combined, mapping = aes(x = treatmen
 subset_nin_plot_filtered <- ggplot(data = xylem_area_combined_circ, mapping = aes(x = treatment, y = Area, colour = nin_type)) + geom_jitter() + geom_violin() + facet_wrap(vars(age_class), scales = "free") + scale_color_viridis_d() + labs(title = "Circularity > 0.7") + xlab(label = "NiN x Age class") + ylab("Xylem area in µm")
 
 subset_nin_plot + subset_nin_plot_filtered
+```
+
+```{r}
+#| label: xylem_density
+
+xylem_density <- xylem_area_combined |>
+  group_by(source_file) |>
+  mutate(subset_xylem_total = sum(Area)) |>
+  ungroup() |>
+  mutate(xylem_density = subset_xylem_total/subset_area) |>
+  group_by(plant) |>
+  mutate(plant_mean_density = mean(xylem_density)) |>
+  ungroup() |>
+  group_by(treatment) |>
+  mutate(treatment_mean_density = mean(xylem_density))
+
+
+xylem_mean_plot <- ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = means_treatment, color = nin_type)) + labs(x = "Age class", y = "Mean xylem vessel area") + guides(color = "none")
+
+xylem_density_plot <-ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = treatment_mean_density, color = nin_type)) + labs(x = "Age class", y = "Density (Total xylem area / subset area)") + guides(color = guide_legend("NiN type"))
+
+xylem_mean_plot + xylem_density_plot
+
 ```
 
 ### Distribution of damage index 4 and 5, and the effect of circularity \> 0.7
@@ -362,6 +422,22 @@ ggplot(data = avg_damage) + geom_jitter(aes(x = treatment, y = Area), color = "g
 ```
 
 Higher damage seem to decrease the average xylem size, so by filtering away damaged subsets it is likely that the average xylem size would increase
+
+```{r}
+circ_vs_area <- xylem_area_combined |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.)))
+
+circ_vs_area <- circ_vs_area |>
+  rename_at("Perim.", ~ "Perim")
+
+circ_vs_area_plot <- ggplot(data = circ_vs_area) + geom_point(aes(x = circ, y = Area, color = Feret), alpha = 0.4) + labs(x = "Circularity")
+
+feret_vs_area_plot <- ggplot(data = circ_vs_area) + geom_point(aes(x = Feret, y = Area, color = circ), alpha = 0.4) + labs(x = "Feret diameter") + guides(color = guide_legend("Circularity"))
+
+perim_vs_area_plot <- ggplot(data = circ_vs_area) + geom_point(aes(x = Perim, y = Area, color = circ), alpha = 0.4) + labs(x = "Circumference") + guides(color = guide_legend("Circularity"))
+
+circ_vs_area_plot + feret_vs_area_plot + perim_vs_area_plot
+```
 
 ## Mixed effect models
 

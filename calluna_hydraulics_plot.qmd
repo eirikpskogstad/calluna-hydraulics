@@ -1,0 +1,120 @@
+---
+title: "calluna_hydraulics_plot"
+format: html
+editor: visual
+---
+
+## Calluna hydraulics plotting
+
+```{r}
+#| label: libraries
+
+library(ggplot2)
+library(ggeffects)
+library(tidyverse)
+```
+
+```{r}
+#| label: import
+
+data <- read.csv("clean_data/DURIN_clean_LygraFire_field_trait_2025.csv")
+data$age_class <- factor(data$age_class, levels = c("PIO", "BUI", "MAT"))
+```
+
+```{r}
+#| label: prep
+
+data <- data |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area)) |>
+  ungroup() |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) 
+```
+
+### Plotting
+
+```{r}
+#| label: plot
+
+data <- data[order(-data$means_treatment),]
+
+
+ggplot(data, 
+       aes(x = age_class, 
+           y = 1, color = nin_type, size = means_treatment, label = round(means_treatment))) +
+  geom_point(shape = 21, fill = NA, stroke = 2, position = position_dodge(0.1)) + scale_size_area(max_size = 30) + geom_text(size = 4, position = position_dodge(1)) + theme_minimal() + scale_colour_viridis_d() +
+  labs(x = "Age class", color = "NiN type") + guides(size = "none") + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+```
+
+```{r}
+#| label: xylem_density
+
+xylem_density <- data |>
+  group_by(source_file) |>
+  mutate(subset_xylem_total = sum(Area)) |>
+  ungroup() |>
+  mutate(xylem_density = subset_xylem_total/subset_area) |>
+  group_by(plant) |>
+  mutate(plant_mean_density = mean(xylem_density)) |>
+  ungroup() |>
+  group_by(treatment) |>
+  mutate(treatment_mean_density = mean(xylem_density))
+
+
+xylem_mean_plot <- ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = means_treatment, color = nin_type)) + labs(x = "Age class", y = "Mean xylem vessel area in µm") + guides(color = "none")
+
+xylem_density_plot <-ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = treatment_mean_density, color = nin_type)) + labs(x = "Age class", y = "Density (Total xylem area / subset area)") + guides(color = guide_legend("NiN type"))
+
+mean_vs_density <- xylem_mean_plot + xylem_density_plot
+mean_vs_density
+ggsave("plots/mean_vs_density.png", mean_vs_density)
+```
+
+### Model
+
+```{r}
+#| label: mixed effect model
+
+#creating a dataframe with a weighting that uses both circularity and degree of subset damage. higher values of damage decrease a given point's weighting, while increased circularity increases it's weighting
+
+model <- lmer(Area ~ age_class * nin_type + circ + subset_damage + (1 | plant), data = data)
+
+
+pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
+
+plot(pred_mod)
+```
+
+```{r}
+summary(model)
+```
+
+```{r}
+drop1(model, test = "Chisq")
+```
+
+```{r}
+res <- residuals(model)
+plot(res)
+```
+
+```{r}
+qqnorm(res)
+qqline(res)
+```
+
+```{r}
+#| label: mixed effect model prediction and raw values
+
+#pred_mod <- pred_mod |>
+  #mutate(treatment = paste(x,"-", group))
+
+palette_ <- c("red","blue","green")
+
+mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 6) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 2) + labs(x = "Age class", y = "Xylem vessel area") + theme_minimal() + scale_color_manual(values = palette_)
+
+mixed_vs_raw
+
+ggsave("plots/Mixed_effects_vs_raw_averages.png", mixed_vs_raw)
+
+```

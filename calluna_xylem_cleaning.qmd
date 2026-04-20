@@ -18,6 +18,7 @@ library(ggplot2)
 library(patchwork)
 library(lme4)
 library(plotrix)
+library(readxl)
 ```
 
 ```{r}
@@ -28,9 +29,61 @@ raw_data$age_class <-factor(raw_data$age_class, levels = c("PIO", "BUI", "MAT"))
 
 ```
 
+```{r}
+#| label: duplicate subset import
+
+duplicate_xylem <- read_excel("raw_data/Duplicate_xylem_subsets.xlsx")
+
+```
+
 ## Cleaning
 
+### Flagging and removing duplicates
+
+```{r}
+#| label: flagging duplicate subsets
+
+#creating the temporary cleaning dataframe
+cleaning_data <- raw_data
+
+#this creates a new column that matches duplicated subsets from the "duplicate xylem" dataframe and matches them with the proper xylem observations.
+cleaning_data$duplicate_subset <- duplicate_xylem$Overlap_1[match(cleaning_data$subset_id, duplicate_xylem$Overlap_1)]
+
+#the matching from the code above puts the name of the subset in the column, so this renames them to "1" and unaffected subsets to "0"
+cleaning_data <- cleaning_data |>
+  mutate(duplicate_subset = case_when(
+    duplicate_subset != "NA" ~ 1,
+    .default = 0
+  )) |>
+  filter(duplicate_subset == 0) #this line removes the duplicates
+
+
+```
+
+### Flagging old pioneers
+
+```{r}
+#| label: flagging old pioneers
+
+#based on the cross sections of PIO-BH, they all seem too old for their burn year (>3 years), flagging them.
+cleaning_data <- cleaning_data |>
+  mutate(suspicious_age = case_when(
+    treatment == "PIO-BH" ~ 1,
+    .default = 0
+  ))
+
+```
+
 ### Evenness
+
+```{r}
+even_subsets <- cleaning_data |>
+  group_by(
+    
+  ) |>
+  count(subset_id)
+  
+```
 
 ```{r}
 #| label: check evenness
@@ -55,6 +108,12 @@ names(xylem_count_combined) <- c("Treatment", "Number of xylems", "Number of xyl
   
 
 xylem_count_combined
+```
+
+### Damage
+
+```{r}
+damaged_subsets <- c("PIO-TH6-N")
 ```
 
 ```{r}
@@ -99,6 +158,30 @@ plot_damage + plot_damage_filtered
 NOTE: blue dots indicate treatment level averages (e.g. BUI-TH)
 
 The patterns of means for every treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.
+
+```{r}
+#| label: potential problematic xylem
+
+potential_problematic_xylem <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  group_by(source_file) |>
+  mutate(subset_means = mean(Area)) |>
+  mutate(problematic = case_when(
+    circ <= 0.65 & Area >= (subset_means + (subset_means * 0.2)) ~ 1, #this basically checks for uncircular xylem that also are larger than the means, as stacked xylem should have a tendency to be larger than average.
+    .default = 0
+  )) |>
+  filter(problematic == 0)
+
+before_plot <- ggplot(data = data_circ) + geom_point(aes(x = circ, y = Area), alpha = 0.4)
+after_plot <- ggplot(data = potential_problematic_xylem) + geom_point(aes(x = circ, y = Area), alpha = 0.4)
+
+before_plot + after_plot
+
+```
+
+This filtering strategy is quite effective at removing stacked xylem, i have cross checked some of the pictures and it flagged just about every stacked xylem. It does not flag really jagged xylem that are close to the mean of the subset, but that could be filtered by circularity \<= 0.6 or 0.55 just to be sure to remove tears. This flagging does create discontinuity at where the threshold for circularity is set.
+
+### Filtering by circularity \> 0.70
 
 ```{r}
 #| label: assessing skewness after filtering
@@ -169,90 +252,21 @@ problem_treatment <- raw_data |>
 ```
 
 ```{r}
-model_mixed_raw <- lmer(Area ~ nin_type * age_class + (1 | plant), data = raw_data)
-#model_mixed <- lmer(Area ~ nin_type * age_class + (1 | plant), data = filtered_data)
+#| label: removing damage 5
 
-res_raw <- residuals(model_mixed_raw)
-#res <- residuals(model_mixed)
+#remove datapoints that have damage level 5
+cleaning_data <- cleaning_data |>
+  filter(subset_damage != 5)
 
-qqnorm(res_raw)
-qqline(res_raw)
-#qqnorm(res)
-#qqline(res)
-
-plot(model_mixed_raw)
-```
-
-The plot above shows the difference between the residuals of the unfiltered
-
-```{r}
-
-model_mixed_raw_log <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = raw_data)
-model_mixed_log <- lmer(log(Area) ~ nin_type * age_class + (1 | plant), data = filtered_data)
-
-res_raw_log <- residuals(model_mixed_raw_log)
-res_log <- residuals(model_mixed_log)
-
-
-qqnorm(res_raw_log)
-qqline(res_raw_log)
-qqnorm(res_log)
-qqline(res_log)
 ```
 
 ```{r}
-plot(res_raw)
-plot(res_raw_log)
-```
-
-Due to the data being skewed, transforming the data logarithmically improves the skewness and allows the residuals to spread more evenly along the fitted line.
-
-```         
-```
-
-```{r}
-#| label: weighted circularity model
-
-a <- 2 #this the amplitude of the weights
-b <- 0.70 #this is the threshold for circularity in which it is more likely to be a xylem. everything below can easily be a tear. 
-
-weighted_circ_data <- raw_data |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |> #calculate circularity using imageJ's formula
-  mutate(weighted_circ = circ * (a * max(0, circ - b)) * (1/(1 + subset_damage)))  |> #circularity is multiplied so that higher values of circularity has higher influence on the model versus lower values. the last part is the subset_damage index, basically higher numbers mean higher chance that the xylem are damaged or just tears
-  group_by(plant) |>
-  mutate(plant_mean = mean(Area)) 
-
-
-mod <- lmer(Area ~ age_class * nin_type + (1 | source_file), data = weighted_circ_data, weights = weighted_circ)
-mod2 <- lmer(Area ~ age_class * nin_type + (1 | plant), data = weighted_circ_data, weights = weighted_circ)
-mod3 <- lmer(Area ~ age_class * nin_type + (1 | plant/source_file), data = weighted_circ_data, weights = weighted_circ)
-
-plot(mod)
-plot(mod2)
-plot(mod3)
-summary(mod)
-summary(mod2)
-summary(mod3)
-
-
-res_mod <- residuals(mod)
-plot(res_mod)
-qqnorm(res_mod)
-qqline(res_mod)
-
-res_mod2 <- residuals(mod2)
-plot(res_mod2)
-qqnorm(res_mod2)
-qqline(res_mod2)
-
-res_mod3 <- residuals(mod3)
-plot(res_mod3)
-qqnorm(res_mod3)
-qqline(res_mod3)
+damage_overview <- raw_data |>
+  filter(subset_damage == 5)
 ```
 
 ### Export
 
 ```{r}
-write.csv(weighted_circ_data, "clean_data/DURIN_clean_LygraFire_field_trait_2025.csv")
+write.csv(cleaning_data, "clean_data/DURIN_clean_LygraFire_field_trait_2025.csv")
 ```
