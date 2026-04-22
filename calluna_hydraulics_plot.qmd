@@ -12,6 +12,8 @@ editor: visual
 library(ggplot2)
 library(ggeffects)
 library(tidyverse)
+library(lme4)
+library(lmerTest)
 ```
 
 ```{r}
@@ -41,7 +43,7 @@ raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv") |>
   mutate(means_treatment = mean(Area)) |>
   ungroup() 
 
-raw_data <- raw_data[order(-raw_data$means_treatment),]
+raw_data$age_class <- factor(raw_data$age_class, levels = c("PIO", "BUI", "MAT"))
 
 ```
 
@@ -84,6 +86,35 @@ mean_vs_density
 ggsave("plots/mean_vs_density.png", mean_vs_density)
 ```
 
+### Density plots
+
+```{r}
+#| echo: false
+#| message: false
+
+density_data <- data |>
+  group_by(subset_id) |>
+  mutate(subset_total = sum(Area)) |>
+  ungroup() |>
+  mutate(density = subset_total/subset_area) |>
+  mutate(replicate = substr(source_file, 7,7))
+
+density_plot <- ggplot(data = density_data) + geom_point(aes(x = subset_total, y = density, color = replicate), size = 0.5) + geom_smooth(aes(x = subset_total, y = density, color = replicate), method = "lm") + facet_grid(cols = vars(age_class), rows = vars(nin_type)) + labs(x = "Total xylem area per subset", y = "Density") + guides(color = guide_legend("Plant replicate"))
+
+density_plot
+ggsave("plots/xylem_density_plot.png", density_plot)
+```
+
+\
+
+```{r}
+
+density_plot_treatment <- ggplot(data = density_data) + geom_point(aes(x = subset_total, y = density), size = 0.5) + geom_smooth(aes(x = subset_total, y = density), method = "lm") + facet_grid(cols = vars(age_class), rows = vars(nin_type)) + labs(x = "Total xylem area per subset", y = "Density") + guides(color = guide_legend("Plant replicate"))
+
+density_plot_treatment
+ggsave("plots/xylem_density_plot_treatment.png", density_plot_treatment)
+```
+
 ### Model
 
 ```{r}
@@ -104,6 +135,8 @@ pred_mod_raw <- ggpredict(model_raw, terms = c("age_class", "nin_type"))
 
 plot(pred_mod)
 plot(pred_mod_raw)
+
+ggplot() + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group),  shape = 2, size = 3) + geom_point(data = pred_mod_raw, aes(x = x, y = predicted, color = group), shape = 1)
 ```
 
 ```{r}
@@ -127,12 +160,8 @@ qqline(res)
 ```{r}
 #| label: mixed effect model prediction and raw values
 
-#pred_mod <- pred_mod |>
-  #mutate(treatment = paste(x,"-", group))
 
-palette_ <- c("red","blue","green")
-
-mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 6) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 2) + labs(x = "Age class", y = "Xylem vessel area") + theme_minimal() + scale_color_manual(values = palette_)
+mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 6) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 2) + labs(x = "Age class", y = "Xylem vessel area") + theme_minimal()
 
 mixed_vs_raw
 

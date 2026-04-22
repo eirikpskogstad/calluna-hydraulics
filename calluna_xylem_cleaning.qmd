@@ -89,6 +89,8 @@ damage_distribution5 <- raw_data |>
   count(treatment)
 
 
+sum_4 <- sum(damage_distribution4$n)
+sum_5 <- sum(damage_distribution5$n)
 ```
 
 ### Evenness
@@ -100,6 +102,10 @@ even_subsets <- cleaning_data |>
   ) |>
   count(subset_id)
   
+```
+
+```{r}
+
 ```
 
 ```{r}
@@ -182,7 +188,7 @@ The patterns of means for every treatment remain largely the same after filterin
 
 damage_data <- raw_data |>
   mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  filter(subset_damage < 3)
+  filter(subset_damage < 4)
 
 circularity_plot <- ggplot(data = data_circ_filter) + geom_point(aes(x = circ, y= Area), alpha = 0.4)
 damage_plot <- ggplot(data = damage_data) + geom_point(aes(x = circ, y= Area, color = subset_damage), alpha = 0.4)
@@ -303,7 +309,7 @@ skew_summary70 <- skew_both70 |>
   ungroup() |>
   mutate(treatment = paste(age_class, nin_type))
 
-skew_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = skew, color = set))
+#skew_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = skew, color = set))
 
 mean_plot55 <- ggplot(data = skew_summary55) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set)) + ggtitle("Circularity > 0.55")
 
@@ -326,7 +332,7 @@ MAT-TH actually decreases in average size after filtering, but other than that t
 data_chi <- raw_data |>
   mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
   mutate(kept = case_when(
-    circ <= 0.70 ~ 0,
+    circ < 0.70 ~ 0,
     circ >= 0.70 ~ 1
   )) |> 
   group_by(treatment) |>
@@ -350,6 +356,20 @@ problem_treatment <- raw_data |>
   subset( kept == 0 & treatment == "BUI-BH") |>
   select(c(2,3,4,24))
 
+```
+
+## Final cleaning
+
+```{r}
+#| label: adding the potential double xylem
+
+cleaning_data <- cleaning_data |>
+    group_by(source_file) |>
+    mutate(subset_means = mean(Area)) |>
+    mutate(double_xylem = case_when(
+    circ <= 0.65 & Area >= (subset_means + (subset_means * 0.2)) ~ 1, #this basically checks for uncircular xylem that also are larger than the means, as stacked xylem should have a tendency to be larger than average.
+    .default = 0
+  ))
 
 ```
 
