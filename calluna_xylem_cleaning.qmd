@@ -44,7 +44,8 @@ duplicate_xylem <- read_excel("raw_data/Duplicate_xylem_subsets.xlsx")
 #| label: flagging duplicate subsets
 
 #creating the temporary cleaning dataframe
-cleaning_data <- raw_data
+cleaning_data <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.)))  
 
 #this creates a new column that matches duplicated subsets from the "duplicate xylem" dataframe and matches them with the proper xylem observations.
 cleaning_data$duplicate_subset <- duplicate_xylem$Overlap_1[match(cleaning_data$subset_id, duplicate_xylem$Overlap_1)]
@@ -74,6 +75,22 @@ cleaning_data <- cleaning_data |>
 
 ```
 
+### Distribution of damage
+
+```{r}
+#| label: distribution of damage 
+
+damage_distribution4 <- raw_data |>
+  filter(subset_damage == 4) |>
+  count(treatment)
+
+damage_distribution5 <- raw_data |>
+  filter(subset_damage == 5) |>
+  count(treatment)
+
+
+```
+
 ### Evenness
 
 ```{r}
@@ -97,7 +114,7 @@ xylem_count_evenness <- raw_data |>
 
 xylem_count_evenness_filtered <- raw_data |>
   mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  filter(circ >= 0.70) |>
+  filter(circ >= 0.65) |>
   count(treatment)
 
 xylem_count_combined <- xylem_count_evenness |>
@@ -157,7 +174,24 @@ plot_damage + plot_damage_filtered
 
 NOTE: blue dots indicate treatment level averages (e.g. BUI-TH)
 
-The patterns of means for every treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.
+The patterns of means for every treatment remain largely the same after filtering by circularity \>= 0.70, implying an uniform distribution of damaged and misshapen xylem. In this case, almost all of the xylem from subsets with damage index 5 is removed, while a large portion of xylem from subsets with damage index 4 is removed too. Circularity seems to be a good rule for excluding structures that are likely not xylem or are xylem damaged during lab work. Filtering by circularity \>= 0.70 removes 4000 datapoints, which is approximately 25% of the total data set.\
+\
+
+```{r}
+#| label: damage vs circularity
+
+damage_data <- raw_data |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  filter(subset_damage < 3)
+
+circularity_plot <- ggplot(data = data_circ_filter) + geom_point(aes(x = circ, y= Area), alpha = 0.4)
+damage_plot <- ggplot(data = damage_data) + geom_point(aes(x = circ, y= Area, color = subset_damage), alpha = 0.4)
+
+circularity_plot + damage_plot
+
+```
+
+The plot above tries to illustrate if removing damage index 4 and 5 (right plot) would remove the same points as circularity \> 0.70. Removing damage 4 and 5 still keeps a lot of points between circ = 0.50 and circ = 0.70.
 
 ```{r}
 #| label: potential problematic xylem
@@ -172,8 +206,8 @@ potential_problematic_xylem <- raw_data |>
   )) |>
   filter(problematic == 0)
 
-before_plot <- ggplot(data = data_circ) + geom_point(aes(x = circ, y = Area), alpha = 0.4)
-after_plot <- ggplot(data = potential_problematic_xylem) + geom_point(aes(x = circ, y = Area), alpha = 0.4)
+before_plot <- ggplot(data = data_circ) + geom_point(aes(x = circ, y = Area), alpha = 0.4) + facet_grid(cols = vars(age_class), rows = vars(nin_type))
+after_plot <- ggplot(data = potential_problematic_xylem) + geom_point(aes(x = circ, y = Area), alpha = 0.4) + facet_grid(cols = vars(age_class), rows = vars(nin_type))
 
 before_plot + after_plot
 
@@ -186,16 +220,46 @@ This filtering strategy is quite effective at removing stacked xylem, i have cro
 ```{r}
 #| label: assessing skewness after filtering
 
+data_skew55 <- data_circ |>
+  filter(circ > 0.55)
+
+data_skew60 <- data_circ |>
+  filter(circ > 0.60)
+
+data_skew65 <- data_circ |>
+  filter(circ > 0.65)
+
+data_skew70 <- data_circ |>
+  filter(circ > 0.70)
+
 skew_raw <- raw_data |>
   mutate(set = "raw")
 
-skew_filtered <- data_circ_filter |>
+skew_filtered55 <- data_skew55 |>
   mutate(set = "filter") |>
   select(-c(24,25))
 
-skew_both <- rbind(skew_raw, skew_filtered)
+skew_filtered60 <- data_skew60 |>
+  mutate(set = "filter") |>
+  select(-c(24,25))
 
-skew_summary <- skew_both |>
+skew_filtered65 <- data_skew65 |>
+  mutate(set = "filter") |>
+  select(-c(24,25))
+
+skew_filtered70 <- data_skew70 |>
+  mutate(set = "filter") |>
+  select(-c(24,25))
+
+skew_both55 <- bind_rows(skew_raw, skew_filtered55)
+
+skew_both60 <- bind_rows(skew_raw, skew_filtered60)
+
+skew_both65 <- bind_rows(skew_raw, skew_filtered65)
+
+skew_both70 <- bind_rows(skew_raw, skew_filtered70)
+
+skew_summary55 <- skew_both55 |>
   group_by(set, age_class, nin_type) |>
   summarise(
     skew = moments::skewness(Area),
@@ -206,12 +270,50 @@ skew_summary <- skew_both |>
   ungroup() |>
   mutate(treatment = paste(age_class, nin_type))
 
+skew_summary60 <- skew_both60 |>
+  group_by(set, age_class, nin_type) |>
+  summarise(
+    skew = moments::skewness(Area),
+    mean = mean(Area),
+    sd = std.error(Area),
+    n = n()
+  ) |> 
+  ungroup() |>
+  mutate(treatment = paste(age_class, nin_type))
+
+skew_summary65 <- skew_both65 |>
+  group_by(set, age_class, nin_type) |>
+  summarise(
+    skew = moments::skewness(Area),
+    mean = mean(Area),
+    sd = std.error(Area),
+    n = n()
+  ) |> 
+  ungroup() |>
+  mutate(treatment = paste(age_class, nin_type))
+
+skew_summary70 <- skew_both70 |>
+  group_by(set, age_class, nin_type) |>
+  summarise(
+    skew = moments::skewness(Area),
+    mean = mean(Area),
+    sd = std.error(Area),
+    n = n()
+  ) |> 
+  ungroup() |>
+  mutate(treatment = paste(age_class, nin_type))
 
 skew_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = skew, color = set))
 
-mean_plot <- ggplot(data = skew_summary) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set))
+mean_plot55 <- ggplot(data = skew_summary55) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set)) + ggtitle("Circularity > 0.55")
 
-skew_plot + mean_plot
+mean_plot60 <- ggplot(data = skew_summary60) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set)) + ggtitle("Circularity > 0.60")
+
+mean_plot65 <- ggplot(data = skew_summary65) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set)) + ggtitle("Circularity > 0.65")
+
+mean_plot70 <- ggplot(data = skew_summary70) + geom_point(aes(x = treatment, y = mean, color = set)) + geom_errorbar(aes(x = treatment, ymin = mean-sd, ymax = mean+sd, color = set)) + ggtitle("Circularity > 0.70")
+
+mean_plot55 + mean_plot60 + mean_plot65 + mean_plot70
 ```
 
 A reason for the increased size is the presence of double parenchyma cells, small tears, and stretched large parenchyma / small xylems, which is gets filtered out by the circularity filter. Many of these are below the average xylem size and thus seemingly increases the average xylem area. The filter also removes large xylem vessels, but they are not as common.\
@@ -252,17 +354,20 @@ problem_treatment <- raw_data |>
 ```
 
 ```{r}
-#| label: removing damage 5
+#| label: removing damage 4 and 5
 
 #remove datapoints that have damage level 5
 cleaning_data <- cleaning_data |>
-  filter(subset_damage != 5)
+  filter(subset_damage < 4)
 
 ```
 
 ```{r}
-damage_overview <- raw_data |>
-  filter(subset_damage == 5)
+#| label: removing circularity < 0.60
+
+cleaning_data <- cleaning_data |>
+  filter(circ > 0.60)
+
 ```
 
 ### Export

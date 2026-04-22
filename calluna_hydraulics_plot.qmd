@@ -27,8 +27,22 @@ data$age_class <- factor(data$age_class, levels = c("PIO", "BUI", "MAT"))
 data <- data |>
   group_by(treatment) |>
   mutate(means_treatment = mean(Area)) |>
-  ungroup() |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) 
+  ungroup() 
+
+data <- data[order(-data$means_treatment),]
+```
+
+```{r}
+#| label: prep raw data
+
+raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv") |>
+  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
+  group_by(treatment) |>
+  mutate(means_treatment = mean(Area)) |>
+  ungroup() 
+
+raw_data <- raw_data[order(-raw_data$means_treatment),]
+
 ```
 
 ### Plotting
@@ -36,7 +50,7 @@ data <- data |>
 ```{r}
 #| label: plot
 
-data <- data[order(-data$means_treatment),]
+
 
 
 ggplot(data, 
@@ -77,12 +91,19 @@ ggsave("plots/mean_vs_density.png", mean_vs_density)
 
 #creating a dataframe with a weighting that uses both circularity and degree of subset damage. higher values of damage decrease a given point's weighting, while increased circularity increases it's weighting
 
-model <- lmer(Area ~ age_class * nin_type + circ + subset_damage + (1 | plant), data = data)
+#data <- data |>
+  #filter(subset_damage != 5)
+
+model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data)
+
+model_raw <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = raw_data)
 
 
 pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
+pred_mod_raw <- ggpredict(model_raw, terms = c("age_class", "nin_type"))
 
 plot(pred_mod)
+plot(pred_mod_raw)
 ```
 
 ```{r}
