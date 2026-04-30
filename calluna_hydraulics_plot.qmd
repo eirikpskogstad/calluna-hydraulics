@@ -94,21 +94,6 @@ variation_data <- variation_data |>
 ### Density plots
 
 ```{r}
-
-#PROBABLY RUBBISH!!
-density_data$factor <- interaction(density_data$age_class, density_data$nin_type)
-
-g <- mgcv::gam(data = density_data, formula = density ~ s(subset_total, by = factor) + factor)
-
-density_prediction <- expand.grid()
-
-
-gam_res <- residuals(g)
-qqnorm(gam_res)
-qqline(gam_res)
-```
-
-```{r}
 #| label: creating density data
 #| warning: false
 
@@ -171,24 +156,6 @@ pred_density_plot <- ggplot(data = pred_density) +
 
 pred_density_plot
 ggsave( "plots/pred_density_plot.png", pred_density_plot)
-```
-
-```{r}
-#| warning: false
-
-density_plot_treatment <- ggplot(
-  data = density_data, 
-  aes(x = subset_total, 
-      y = density, 
-      color = xylem_count)
-  ) + geom_point(size = 0.5) + 
-  geom_smooth(method = "gam", formula = density ~ s(subset_total, by = interaction(age_class, nin_type) + age_class * nin_type), color = "deepskyblue4") + 
-  facet_grid(cols = vars(age_class), rows = vars(nin_type)) + 
-  labs(x = "Total xylem area per subset in µm²", y = "Density (Total xylem area / subset area)") + 
-  scale_color_gradient(low = "lightblue", high = "darkslategrey", name = "Xylem count \n per subset")
-
-density_plot_treatment
-ggsave("plots/xylem_density_plot_treatment.png", density_plot_treatment)
 ```
 
 ```{r}
