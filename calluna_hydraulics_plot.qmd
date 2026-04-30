@@ -14,6 +14,8 @@ library(ggeffects)
 library(tidyverse)
 library(lme4)
 library(lmerTest)
+library(emmeans)
+library(multcomp)
 ```
 
 ```{r}
@@ -63,80 +65,161 @@ ggplot(data,
 ```
 
 ```{r}
-#| label: xylem_density
+#| label: age class mean xylem size
 
-xylem_density <- data |>
-  group_by(source_file) |>
-  mutate(subset_xylem_total = sum(Area)) |>
-  ungroup() |>
-  mutate(xylem_density = subset_xylem_total/subset_area) |>
-  group_by(plant) |>
-  mutate(plant_mean_density = mean(xylem_density)) |>
-  ungroup() |>
+ggplot(data = data) + geom_violin(aes(x = age_class, y = Feret))
+
+```
+
+```{r}
+#| label: xylem area variation
+
+variation_data <- data |>
+  group_by(subset_id) |>
+  mutate(subset_means = mean(Area)) |>
+  distinct(subset_id, .keep_all = TRUE) 
+
+variation_data$subset_damage <- as.character(as.numeric(variation_data$subset_damage))
+
+
+xylem_variation_plot <- ggplot(data = variation_data, aes(x = age_class, y = subset_means)) + geom_point(color = "deepskyblue4", position = position_jitter(0.1)) + geom_violin(fill = NA, color = "deepskyblue4") + facet_grid(rows = vars(nin_type)) + labs(x = "Age class", y = "Mean xylem vessel area per subset in µm²") 
+xylem_variation_plot
+ggsave("plots/xylem_vessel_area_variation.png", xylem_variation_plot)
+
+variation_data <- variation_data |>
   group_by(treatment) |>
-  mutate(treatment_mean_density = mean(xylem_density))
-
-
-xylem_mean_plot <- ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = means_treatment, color = nin_type)) + labs(x = "Age class", y = "Mean xylem vessel area in µm") + guides(color = "none")
-
-xylem_density_plot <-ggplot(data = xylem_density) + geom_point(aes(x = age_class, y = treatment_mean_density, color = nin_type)) + labs(x = "Age class", y = "Density (Total xylem area / subset area)") + guides(color = guide_legend("NiN type"))
-
-mean_vs_density <- xylem_mean_plot + xylem_density_plot
-mean_vs_density
-ggsave("plots/mean_vs_density.png", mean_vs_density)
+  mutate(min_max = max(subset_means)-min(subset_means))
 ```
 
 ### Density plots
 
 ```{r}
-#| echo: false
-#| message: false
 
+#PROBABLY RUBBISH!!
+density_data$factor <- interaction(density_data$age_class, density_data$nin_type)
+
+g <- mgcv::gam(data = density_data, formula = density ~ s(subset_total, by = factor) + factor)
+
+density_prediction <- expand.grid()
+
+
+gam_res <- residuals(g)
+qqnorm(gam_res)
+qqline(gam_res)
+```
+
+```{r}
+#| label: creating density data
+#| warning: false
+
+#creating a new dataset with the density of xylem, keeping only distinct values of density
 density_data <- data |>
   group_by(subset_id) |>
-  mutate(subset_total = sum(Area)) |>
-  ungroup() |>
+  summarise(
+            source_file = source_file,
+            age_class = age_class,
+            nin_type = nin_type,
+            plant = plant,
+            subset_total = sum(Area),
+            subset_area = subset_area,
+            circ = mean(circ), #using the mean circularity for the subset, otherwise it will pick the first value
+            subset_damage = subset_damage
+            ) |>
   mutate(density = subset_total/subset_area) |>
   mutate(replicate = substr(source_file, 7,7))
 
-density_plot <- ggplot(data = density_data) + geom_point(aes(x = subset_total, y = density, color = replicate), size = 0.5) + geom_smooth(aes(x = subset_total, y = density, color = replicate), method = "lm") + facet_grid(cols = vars(age_class), rows = vars(nin_type)) + labs(x = "Total xylem area per subset", y = "Density") + guides(color = guide_legend("Plant replicate"))
-
-density_plot
-ggsave("plots/xylem_density_plot.png", density_plot)
+#keeping only distinct values of density, filtering by subset_id as there is only one density per subset
+density_data <- distinct(density_data, subset_id, .keep_all = TRUE)
 ```
 
-\
+```{r}
+#| label: density model
+
+density_model <- lmer(density ~ age_class * nin_type + circ + subset_damage + (1 | plant), data = density_data)
+summary(density_model)
+```
 
 ```{r}
+#| label: qqplot density
 
-density_plot_treatment <- ggplot(data = density_data) + geom_point(aes(x = subset_total, y = density), size = 0.5) + geom_smooth(aes(x = subset_total, y = density), method = "lm") + facet_grid(cols = vars(age_class), rows = vars(nin_type)) + labs(x = "Total xylem area per subset", y = "Density") + guides(color = guide_legend("Plant replicate"))
+res_density <- residuals(density_model)
+qqnorm(res_density)
+qqline(res_density)
+```
+
+```{r}
+#| label: plot density residuals
+plot(res_density)
+```
+
+```{r}
+#create predictions for the density model, make it ready for use in ggplot
+pred_density <- ggpredict(density_model, terms = c("age_class", "nin_type"))
+
+#this is just to output the values from each group
+pred_density
+
+#ggplot for plotting the predicted values for density and all of the subset data outlined in violin plots
+pred_density_plot <- ggplot(data = pred_density) + 
+  #geom_point(data = density_data_summarised, aes(x = age_class, y = density, color = nin_type), alpha = 0.5, position = position_dodge2(0.4)) + 
+  geom_violin(data = density_data, aes(x = age_class, y = density, color = nin_type), fill = NA) + 
+  geom_point(aes(x = x, y = predicted, color = group), position = position_dodge(0.9), size = 4) + 
+  geom_errorbar(aes(x = x, ymax = predicted+std.error, ymin = predicted-std.error, color = group, width = 0), position = position_dodge(0.9)) + 
+  labs(x = "Age class", y = "Density (Total xylem area / subset area") + 
+  guides(color = guide_legend("NiN type")) + 
+  scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue"))
+
+pred_density_plot
+ggsave( "plots/pred_density_plot.png", pred_density_plot)
+```
+
+```{r}
+#| warning: false
+
+density_plot_treatment <- ggplot(
+  data = density_data, 
+  aes(x = subset_total, 
+      y = density, 
+      color = xylem_count)
+  ) + geom_point(size = 0.5) + 
+  geom_smooth(method = "gam", formula = density ~ s(subset_total, by = interaction(age_class, nin_type) + age_class * nin_type), color = "deepskyblue4") + 
+  facet_grid(cols = vars(age_class), rows = vars(nin_type)) + 
+  labs(x = "Total xylem area per subset in µm²", y = "Density (Total xylem area / subset area)") + 
+  scale_color_gradient(low = "lightblue", high = "darkslategrey", name = "Xylem count \n per subset")
 
 density_plot_treatment
 ggsave("plots/xylem_density_plot_treatment.png", density_plot_treatment)
 ```
 
-### Model
+```{r}
+anova(density_model, type = 3)
+```
+
+```{r}
+#| label: post hoc density
+
+density_age_nin_emm <- emmeans(density_model, ~ age_class*nin_type, pbkrtest.limit = 13755)
+
+contrast(density_age_nin_emm)
+
+```
+
+### Xylem vessel size
 
 ```{r}
 #| label: mixed effect model
 
-#creating a dataframe with a weighting that uses both circularity and degree of subset damage. higher values of damage decrease a given point's weighting, while increased circularity increases it's weighting
+#removing double xylem as they will bias the size estimate. then fitting a model with estimates of mean xylem vessel area for each treatment combo
 
-#data <- data |>
-  #filter(subset_damage != 5)
+data_model <- data |>
+  filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
 
-model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data)
-
-model_raw <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = raw_data)
-
+model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
 
 pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
-pred_mod_raw <- ggpredict(model_raw, terms = c("age_class", "nin_type"))
 
+pred_mod
 plot(pred_mod)
-plot(pred_mod_raw)
-
-ggplot() + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group),  shape = 2, size = 3) + geom_point(data = pred_mod_raw, aes(x = x, y = predicted, color = group), shape = 1)
 ```
 
 ```{r}
@@ -145,6 +228,11 @@ summary(model)
 
 ```{r}
 drop1(model, test = "Chisq")
+```
+
+```{r}
+anova(model, type = 3) #using type 3 as the drop1 output deemed the age_class:nin_type interaction significant
+
 ```
 
 ```{r}
@@ -161,10 +249,33 @@ qqline(res)
 #| label: mixed effect model prediction and raw values
 
 
-mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 6) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 2) + labs(x = "Age class", y = "Xylem vessel area") + theme_minimal()
-
+mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 3, position = position_dodge(0.2)) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 4, position = position_dodge(0.2)) + geom_errorbar(data = pred_mod, aes(x = x, ymin = predicted-std.error, ymax = predicted+std.error, color = group), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Mean xylem vessel area in µm²") + guides(color = guide_legend("NiN Type")) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) 
 mixed_vs_raw
 
 ggsave("plots/Mixed_effects_vs_raw_averages.png", mixed_vs_raw)
 
+```
+
+```{r}
+#| label: post hoc age class and nin type
+
+#post hoc for age_class:nin_type interaction
+age_nin_emm <- emmeans(model, ~ nin_type * age_class, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
+
+contrast(age_nin_emm)
+```
+
+```{r}
+#| label: post hoc nin type
+
+#post hoc for nin_type
+nin_emm <- emmeans(model, pairwise ~ nin_type, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
+
+contrast(nin_emm)
+```
+
+```{r}
+xylem_variation <- pred_mod |>
+  group_by(x) |>
+  mutate(variation = max(predicted)-min(predicted))
 ```
