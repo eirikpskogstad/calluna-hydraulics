@@ -8,6 +8,7 @@ editor: visual
 
 ```{r}
 #| label: libraries
+#| echo: false
 
 library(ggplot2)
 library(ggeffects)
@@ -36,19 +37,6 @@ data <- data |>
 data <- data[order(-data$means_treatment),]
 ```
 
-```{r}
-#| label: prep raw data
-
-raw_data <- read.csv("raw_data/DURIN_raw_LygraFire_field_trait_2025.csv") |>
-  mutate(circ = (4*3.14)*(Area/(Perim.*Perim.))) |>
-  group_by(treatment) |>
-  mutate(means_treatment = mean(Area)) |>
-  ungroup() 
-
-raw_data$age_class <- factor(raw_data$age_class, levels = c("PIO", "BUI", "MAT"))
-
-```
-
 ### Plotting
 
 ```{r}
@@ -62,13 +50,6 @@ ggplot(data,
            y = 1, color = nin_type, size = means_treatment, label = round(means_treatment))) +
   geom_point(shape = 21, fill = NA, stroke = 2, position = position_dodge(0.1)) + scale_size_area(max_size = 30) + geom_text(size = 4, position = position_dodge(1)) + theme_minimal() + scale_colour_viridis_d() +
   labs(x = "Age class", color = "NiN type") + guides(size = "none") + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
-```
-
-```{r}
-#| label: age class mean xylem size
-
-ggplot(data = data) + geom_violin(aes(x = age_class, y = Feret))
-
 ```
 
 ```{r}
@@ -89,6 +70,90 @@ ggsave("plots/xylem_vessel_area_variation.png", xylem_variation_plot)
 variation_data <- variation_data |>
   group_by(treatment) |>
   mutate(min_max = max(subset_means)-min(subset_means))
+```
+
+### Xylem vessel area
+
+```{r}
+#| label: mixed effect model
+
+#removing double xylem as they will bias the size estimate. then fitting a model with estimates of mean xylem vessel area for each treatment combo
+
+data_model <- data |>
+  filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
+
+model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
+
+pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
+```
+
+```{r}
+#| label: mixed effect model
+
+#removing double xylem as they will bias the size estimate. then fitting a model with estimates of mean xylem vessel area for each treatment combo
+
+data_model <- data |>
+  filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
+
+model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
+
+pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
+
+pred_mod
+plot(pred_mod)
+```
+
+```{r}
+summary(model)
+```
+
+```{r}
+res <- residuals(model)
+plot(res)
+```
+
+```{r}
+qqnorm(res)
+qqline(res)
+```
+
+```{r}
+#| label: mixed effect model prediction and raw values
+
+
+mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 3, position = position_dodge(0.2)) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 4, position = position_dodge(0.2)) + geom_errorbar(data = pred_mod, aes(x = x, ymin = predicted-std.error, ymax = predicted+std.error, color = group), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Mean xylem vessel area in µm²") + guides(color = guide_legend("NiN Type")) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) 
+mixed_vs_raw
+
+ggsave("plots/Mixed_effects_vs_raw_averages.png", mixed_vs_raw)
+
+```
+
+```{r}
+anova(model, type = 3) #using type 3 as the drop1 output deemed the age_class:nin_type interaction significant
+```
+
+```{r}
+#| label: post hoc age class and nin type
+
+#post hoc for age_class:nin_type interaction
+age_nin_emm <- emmeans(model, ~ nin_type * age_class, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
+
+contrast(age_nin_emm)
+```
+
+```{r}
+#| label: post hoc nin type
+
+#post hoc for nin_type
+nin_emm <- emmeans(model, pairwise ~ nin_type, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
+
+contrast(nin_emm)
+```
+
+```{r}
+xylem_variation <- pred_mod |>
+  group_by(x) |>
+  mutate(variation = max(predicted)-min(predicted))
 ```
 
 ### Density plots
@@ -168,81 +233,4 @@ anova(density_model, type = 3)
 density_age_nin_emm <- emmeans(density_model, ~ age_class*nin_type, pbkrtest.limit = 13755)
 
 contrast(density_age_nin_emm)
-
-```
-
-### Xylem vessel size
-
-```{r}
-#| label: mixed effect model
-
-#removing double xylem as they will bias the size estimate. then fitting a model with estimates of mean xylem vessel area for each treatment combo
-
-data_model <- data |>
-  filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
-
-model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
-
-pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
-
-pred_mod
-plot(pred_mod)
-```
-
-```{r}
-summary(model)
-```
-
-```{r}
-drop1(model, test = "Chisq")
-```
-
-```{r}
-anova(model, type = 3) #using type 3 as the drop1 output deemed the age_class:nin_type interaction significant
-
-```
-
-```{r}
-res <- residuals(model)
-plot(res)
-```
-
-```{r}
-qqnorm(res)
-qqline(res)
-```
-
-```{r}
-#| label: mixed effect model prediction and raw values
-
-
-mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 3, position = position_dodge(0.2)) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 4, position = position_dodge(0.2)) + geom_errorbar(data = pred_mod, aes(x = x, ymin = predicted-std.error, ymax = predicted+std.error, color = group), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Mean xylem vessel area in µm²") + guides(color = guide_legend("NiN Type")) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) 
-mixed_vs_raw
-
-ggsave("plots/Mixed_effects_vs_raw_averages.png", mixed_vs_raw)
-
-```
-
-```{r}
-#| label: post hoc age class and nin type
-
-#post hoc for age_class:nin_type interaction
-age_nin_emm <- emmeans(model, ~ nin_type * age_class, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
-
-contrast(age_nin_emm)
-```
-
-```{r}
-#| label: post hoc nin type
-
-#post hoc for nin_type
-nin_emm <- emmeans(model, pairwise ~ nin_type, pbkrtest.limit = 13484) #contrast will be done in the next step, as emmeans recommend it.
-
-contrast(nin_emm)
-```
-
-```{r}
-xylem_variation <- pred_mod |>
-  group_by(x) |>
-  mutate(variation = max(predicted)-min(predicted))
 ```
