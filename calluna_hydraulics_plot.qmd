@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## Calluna hydraulics plotting
+# Calluna hydraulics plotting
 
 ```{r}
 #| label: libraries
@@ -17,6 +17,7 @@ library(lme4)
 library(lmerTest)
 library(emmeans)
 library(multcomp)
+library(patchwork)
 ```
 
 ```{r}
@@ -27,14 +28,46 @@ data$age_class <- factor(data$age_class, levels = c("PIO", "BUI", "MAT"))
 ```
 
 ```{r}
+#| label: functional trait import
+
+#awful code but had to make the functional traits fit the hydraulic dataset, as that was the fastest way currently. otherwise would have to rename all of the pictures from the sectioning. so this does not fit the DURIN standards atm.
+
+func_data <- read.csv("clean_data/DURIN_clean_LygraFire_field_functional_trait_2025.csv") |>
+  mutate(age_class = case_when(
+age_class == "Pioneer" ~ "PIO",
+age_class == "Building" ~ "BUI",
+age_class == "Mature" ~ "MAT"
+)) |>
+  mutate(unique_plantID = paste(age_class,"-",calluna_NiN_type,plant_nr, sep = "")) |>
+  group_by(unique_plantID) |>
+  mutate(plant_SLA = mean(SLA)) |>
+  mutate(plant_LDMC = mean(LDMC)) |>
+  filter(unique_plantID != "BUI-BH5") #had to remove it due to time constraints
+  
+
+func_data$age_class <- factor(func_data$age_class, levels = c("PIO", "BUI", "MAT"))
+```
+
+```{r}
 #| label: prep
 
 data <- data |>
   group_by(treatment) |>
-  mutate(means_treatment = mean(Area)) |>
-  ungroup() 
+  mutate(means_treatment = mean(Area)) |> #mean area per NiN-age combination
+  ungroup() |>
+  group_by(plant) |>
+  mutate(plant_area = mean(Area)) #mean area per plant
 
 data <- data[order(-data$means_treatment),]
+
+#adding columns with the plant level sla, ldmc, height, and stem thickness
+
+data$height_cm <- func_data$height_cm[match(data$plant, func_data$unique_plantID)]
+data$stem_thickness <- func_data$stem_diameter_base[match(data$plant, func_data$unique_plantID)]
+data$SLA <- func_data$plant_SLA[match(data$plant, func_data$unique_plantID)]
+data$LDMC <- func_data$plant_LDMC[match(data$plant, func_data$unique_plantID)]
+
+
 ```
 
 ### Plotting
@@ -72,7 +105,7 @@ variation_data <- variation_data |>
   mutate(min_max = max(subset_means)-min(subset_means))
 ```
 
-### Xylem vessel area
+# Xylem vessel area
 
 ```{r}
 #| label: mixed effect model
@@ -82,20 +115,9 @@ variation_data <- variation_data |>
 data_model <- data |>
   filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
 
-model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
 
-pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
-```
 
-```{r}
-#| label: mixed effect model
-
-#removing double xylem as they will bias the size estimate. then fitting a model with estimates of mean xylem vessel area for each treatment combo
-
-data_model <- data |>
-  filter(double_xylem == 0) # remove double xylem from xylem vessel size estimates
-
-model <- lmer(Area ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
+model <- lmer(sqrt(Area) ~ age_class * nin_type +  circ + subset_damage + (1 | plant), data = data_model)
 
 pred_mod <- ggpredict(model, terms = c("age_class", "nin_type"))
 
@@ -105,6 +127,10 @@ plot(pred_mod)
 
 ```{r}
 summary(model)
+```
+
+```{r}
+VarCorr(model)
 ```
 
 ```{r}
@@ -120,8 +146,9 @@ qqline(res)
 ```{r}
 #| label: mixed effect model prediction and raw values
 
+#since i have used a sqrt transform on the dataset, the std.error gets kind of unreliable. are instead using confidence intervals
 
-mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 3, position = position_dodge(0.2)) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 4, position = position_dodge(0.2)) + geom_errorbar(data = pred_mod, aes(x = x, ymin = predicted-std.error, ymax = predicted+std.error, color = group), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Mean xylem vessel area in µm²") + guides(color = guide_legend("NiN Type")) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) 
+mixed_vs_raw <- ggplot() +  geom_point(data = data, aes(x = age_class, y = means_treatment, color = nin_type), shape = 1, size = 3, position = position_dodge(0.2)) + geom_point(data = pred_mod, aes(x = x, y = predicted, color = group), shape = 2, size = 4, position = position_dodge(0.2)) + geom_errorbar(data = pred_mod, aes(x = x, ymin = predicted-conf.low, ymax = predicted+conf.high, color = group), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Mean xylem vessel area in µm²") + guides(color = guide_legend("NiN Type")) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) 
 mixed_vs_raw
 
 ggsave("plots/Mixed_effects_vs_raw_averages.png", mixed_vs_raw)
@@ -151,12 +178,13 @@ contrast(nin_emm)
 ```
 
 ```{r}
-xylem_variation <- pred_mod |>
-  group_by(x) |>
-  mutate(variation = max(predicted)-min(predicted))
+data_variance <- data_model
+data_variance$residuals <- abs(residuals(model))
+
+aggregate(residuals ~ age_class, data_variance, mean)
 ```
 
-### Density plots
+# Xylem density
 
 ```{r}
 #| label: creating density data
@@ -214,7 +242,7 @@ pred_density_plot <- ggplot(data = pred_density) +
   #geom_point(data = density_data_summarised, aes(x = age_class, y = density, color = nin_type), alpha = 0.5, position = position_dodge2(0.4)) + 
   geom_violin(data = density_data, aes(x = age_class, y = density, color = nin_type), fill = NA) + 
   geom_point(aes(x = x, y = predicted, color = group), position = position_dodge(0.9), size = 4) + 
-  geom_errorbar(aes(x = x, ymax = predicted+std.error, ymin = predicted-std.error, color = group, width = 0), position = position_dodge(0.9)) + 
+  geom_errorbar(aes(x = x, ymax = predicted+conf.high, ymin = predicted-conf.low, color = group, width = 0.4), position = position_dodge(0.9)) + 
   labs(x = "Age class", y = "Density (Total xylem area / subset area") + 
   guides(color = guide_legend("NiN type")) + 
   scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue"))
@@ -233,4 +261,213 @@ anova(density_model, type = 3)
 density_age_nin_emm <- emmeans(density_model, ~ age_class*nin_type, pbkrtest.limit = 13755)
 
 contrast(density_age_nin_emm)
+```
+
+### Density to area scatterplot
+
+```{r}
+#creating a new dataset with the density of xylem, keeping only distinct values of density
+density_area_data <- data |>
+  group_by(subset_id) |>
+  summarise(
+            source_file = source_file,
+            treatment = treatment,
+            plant = plant,
+            subset_total = sum(Area),
+            subset_means = subset_means,
+            subset_area = subset_area,
+            circ = mean(circ), #using the mean circularity for the subset, otherwise it will pick the first value
+            subset_damage = subset_damage
+            ) |>
+  mutate(density = subset_total/subset_area) |>
+  mutate(replicate = substr(source_file, 7,7))
+    
+density_area_data <- density_area_data |>
+  group_by(plant) |>
+  summarise(plant_mean = mean(subset_means),
+            plant_density = mean(density),
+            plant = plant,
+            treatment = treatment
+  )
+
+density_area_data$treatment <- factor(density_area_data$treatment, levels = c("PIO-BH", "PIO-FH", "PIO-TH", "BUI-BH", "BUI-FH", "BUI-TH", "MAT-BH", "MAT-FH", "MAT-TH"))
+
+density_area_plot <- ggplot(data = density_area_data, aes(x = plant_density, y = plant_mean, color = treatment)) + geom_point(size = 1) + stat_ellipse() + scale_color_manual(values = c("darkgreen","green3", "lightgreen", "darkblue", "royalblue", "skyblue", "darkred", "red2", "indianred1")) + labs(x = "Mean density", y = "Mean xylem vessel area") + guides(color = guide_legend("NiN-age \ncombination"))
+density_area_plot
+ggsave("plots/density_area_plot.png", density_area_plot)
+```
+
+### Xylem conductivity
+
+```{r}
+cond_data <- data |>
+  mutate(conductivity = (3.14*Feret^4)/(8*1)) |>
+  group_by(treatment) |>
+  mutate(mean_conductivity = mean(conductivity))
+
+cond_data <- distinct(cond_data, mean_conductivity, .keep_all = TRUE)
+
+ggplot(data = cond_data, aes(x = age_class, y = mean_conductivity, color = nin_type)) + geom_point()
+
+```
+
+### Functional traits plots
+
+```{r}
+
+functional_data <- data
+functional_data <- distinct(functional_data, plant, .keep_all = TRUE)
+
+functional_data |>
+  ggplot(aes(x = stem_thickness, y = plant_area, color = nin_type)) + geom_point(size = 2, aes(shape = age_class)) + geom_smooth(method = "lm") + labs(x = "Stem thickness in cm", y = "Mean xylem vessel area in µm") + scale_color_manual(values = c("green3", "royalblue", "red2"))
+```
+
+```{r}
+functional_data |>
+  ggplot(aes(x = height_cm, y = plant_area, color = nin_type)) + geom_point(size = 2, aes(shape = age_class)) + geom_smooth(method = "lm") + labs(x = "Plant height in cm", y = "Mean xylem vessel area in µm") + scale_color_manual(values = c("green3", "royalblue", "red2"))
+```
+
+# Xylem area by functional traits
+
+```{r}
+#| label: functional trait model
+
+func_model <- lmer(sqrt(Area) ~ stem_thickness + height_cm + SLA  + age_class * nin_type + (1 | plant), data = data)
+summary(func_model)
+```
+
+### Diagnostics plots
+
+```{r}
+res_func <- residuals(func_model)
+qqnorm(res_func)
+qqline(res_func)
+```
+
+```{r}
+plot(res_func)
+```
+
+```{r}
+anova(func_model, type = 3)
+```
+
+```{r}
+#| label: post hoc functional xylem area
+
+#currently using nin_type as the comparison, stem_thickness is continuous and therefore wont work with emmeans
+area_stem_thickness_emm <- emmeans(func_model, ~ nin_type)
+
+contrast(area_stem_thickness_emm)
+```
+
+Visualizing stem thickness by nin type, as stem thickness was the only functional trait to be significant
+
+```{r}
+func_pred <- ggpredict(func_model, terms = c("stem_thickness", "nin_type", "age_class"))
+-
+```
+
+```{r}
+#| label: xylem area by functional traits plot
+
+
+area_stem_plot <- ggplot(data = func_pred, aes(x = x, y = predicted, color = group)) + geom_smooth(method = "lm") + geom_ribbon(aes(ymin = conf.low, ymax = conf.high, color = group), alpha = 0.1, linetype = 2) + labs(x = "Stem thickness in mm", y = "Predicted xylem mean vessel area") + facet_wrap(vars(facet)) + scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue")) + guides(color = guide_legend("NiN \ntype"))
+area_stem_plot
+
+ggsave("plots/xylem_stem_plot.png", area_stem_plot)
+```
+
+# Functional traits
+
+### SLA
+
+```{r}
+#| label: SLA explained by nin and age class
+
+sla_model <- lmer(SLA ~ age_class * calluna_NiN_type + (1 | unique_plantID), data = func_data)
+summary(sla_model)
+
+```
+
+```{r}
+res_sla <- residuals(sla_model)
+plot(res_sla)
+
+qqnorm(res_sla)
+qqline(res_sla)
+```
+
+```{r}
+anova(sla_model, type = 3)
+```
+
+```{r}
+#| label: post hoc sla
+
+sla_emm <- emmeans(sla_model, ~ age_class*calluna_NiN_type)
+
+contrast(sla_emm)
+```
+
+```{r}
+sla_pred <- ggpredict(sla_model, terms = c("age_class", "calluna_NiN_type"))
+sla_pred
+plot(sla_pred)
+
+```
+
+```{r}
+sla_plot <- ggplot(data = sla_pred, aes(x = x, y = predicted, color = group)) + geom_point(position = position_dodge(0.2)) + geom_errorbar(aes(ymin = predicted-std.error, ymax = predicted+std.error), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Specific leaf area (SLA)") + guides(color = "none") +   scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue"))
+sla_plot
+```
+
+### LDMC
+
+```{r}
+#| label: SLA explained by nin and age class
+
+ldmc_model <- lmer(LDMC ~ age_class * calluna_NiN_type + (1 | unique_plantID), data = func_data)
+summary(ldmc_model)
+```
+
+```{r}
+res_ldmc <- residuals(ldmc_model)
+plot(res_ldmc)
+
+qqnorm(res_ldmc)
+qqline(res_ldmc)
+```
+
+```{r}
+anova(ldmc_model, type = 3)
+```
+
+```{r}
+#| label: post hoc ldmc
+
+
+ldmc_nin_emm <- emmeans(ldmc_model, ~ calluna_NiN_type)
+ldmc_age_emm <- emmeans(ldmc_model, ~ age_class)
+
+contrast(ldmc_nin_emm)
+contrast(ldmc_age_emm)
+```
+
+```{r}
+ldmc_pred <- ggpredict(ldmc_model, terms = c("age_class", "calluna_NiN_type"))
+ldmc_pred
+plot(ldmc_pred)
+```
+
+```{r}
+ldmc_plot <- ggplot(data = ldmc_pred, aes(x = x, y = predicted, color = group)) + geom_point(position = position_dodge(0.2)) + geom_errorbar(aes(ymin = predicted-std.error, ymax = predicted+std.error), width = 0.2, position = position_dodge(0.2)) + labs(x = "Age class", y = "Leaf dry matter content (LDMC)") + guides(color = guide_legend("NiN type")) +
+  scale_color_manual(values = c("darkslategrey", "deepskyblue4", "lightskyblue"))
+ldmc_plot
+```
+
+```{r}
+func_plot <- sla_plot + ldmc_plot
+func_plot
+ggsave("plots/functional_traits.png", func_plot)
 ```
